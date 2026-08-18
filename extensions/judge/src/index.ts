@@ -196,10 +196,8 @@ async function main(): Promise<void> {
 		onCycleError: (err) => console.error(`${EXTENSION_NAME}: cycle failed:`, err),
 		onRunError: (runId, err) =>
 			console.error(`${EXTENSION_NAME}: judgment for run ${runId} failed:`, err),
-			// An unjudged marker's detail exists only here — the store row
-			// carries the reason alone, so an unlogged detail is
-			// undiagnosable from the pod (warren-5fcf: 334 judge_error
-			// markers with no error text anywhere).
+			// Log unjudged details for real-time visibility in pod logs;
+			// details are also stored in verdict_rows (warren-a106).
 			onJudgment: (runId, outcome) => {
 				if (outcome.kind === "unjudged") {
 					console.error(

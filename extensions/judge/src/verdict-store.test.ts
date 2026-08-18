@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { VerdictStore } from "./verdict-store.ts";
 import type { JudgeVerdict } from "./wire.ts";
@@ -90,20 +94,74 @@ describe("VerdictStore.recordVerdict", () => {
 });
 
 describe("VerdictStore.recordUnjudged", () => {
-	test("appends an unjudged marker with a reason", () => {
+	test("appends an unjudged marker with a reason and detail", () => {
 		const store = makeStore();
 		const id = store.recordUnjudged({
 			runId: "run-1",
 			rubricVersion: "rubric-v1-abc",
 			judgeModelId: "cheap-model",
 			reason: "budget_exceeded",
+			detail: "accrued cost $0.2500 reached per-judgment cap",
 		});
 		expect(id).toBe(1);
 		const row = store.rowsForRun("run-1")[0];
 		expect(row?.kind).toBe("unjudged");
 		expect(row?.reason).toBe("budget_exceeded");
+		expect(row?.detail).toBe("accrued cost $0.2500 reached per-judgment cap");
 		expect(row?.verdict).toBeNull();
 		store.close();
+	});
+
+	test("defaults detail to null when omitted", () => {
+		const store = makeStore();
+		store.recordUnjudged({
+			runId: "run-1",
+			rubricVersion: "rubric-v1-abc",
+			judgeModelId: "cheap-model",
+			reason: "judge_error",
+		});
+		const row = store.rowsForRun("run-1")[0];
+		expect(row?.kind).toBe("unjudged");
+		expect(row?.detail).toBeNull();
+		store.close();
+	});
+
+	test("migrates existing database schema missing the detail column", () => {
+		const tmpDir = mkdtempSync(join(tmpdir(), "verdict-store-test-"));
+		const dbPath = join(tmpDir, "legacy.db");
+		try {
+			const db = new Database(dbPath);
+			db.run(`
+				CREATE TABLE verdict_rows (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					kind TEXT NOT NULL CHECK (kind IN ('verdict', 'unjudged')),
+					run_id TEXT NOT NULL,
+					rubric_version TEXT NOT NULL,
+					judge_model_id TEXT NOT NULL,
+					verdict TEXT,
+					reason TEXT,
+					recorded_at TEXT NOT NULL,
+					dedupe_key TEXT NOT NULL UNIQUE
+				);
+			`);
+			db.close();
+
+			const store = new VerdictStore(dbPath);
+			const id = store.recordUnjudged({
+				runId: "run-legacy",
+				rubricVersion: "rubric-v1-abc",
+				judgeModelId: "cheap-model",
+				reason: "judge_error",
+				detail: "legacy db detail test",
+			});
+			expect(id).toBe(1);
+			const row = store.rowsForRun("run-legacy")[0];
+			expect(row?.kind).toBe("unjudged");
+			expect(row?.detail).toBe("legacy db detail test");
+			store.close();
+		} finally {
+			rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 
 	test("replay of the same unjudged marker is a no-op", () => {
@@ -167,6 +225,7 @@ describe("VerdictStore paging and per-rubric reads", () => {
 		expect(row?.kind).toBe("verdict");
 		expect(row?.verdict).toEqual(verdict);
 		expect(row?.judgeModelId).toBe("cheap-model");
+		expect(row?.detail).toBeNull();
 		store.close();
 	});
 });

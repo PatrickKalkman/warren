@@ -15,10 +15,10 @@
  *
  * Write-path discipline: `recordVerdict` accepts only wire.ts-validated
  * verdicts. It re-runs `validateVerdict` before touching the DB, so nothing
- * outside the §12.3 contract can land even from an in-memory caller that
+ * outside the 12.3 contract can land even from an in-memory caller that
  * skipped the parse boundary. `recordUnjudged` stores a marker with a
  * machine-readable reason; a judgment resolves to a validated verdict or an
- * unjudged marker, nothing else (agent-analytics §12.5).
+ * unjudged marker, nothing else (agent-analytics 12.5).
  */
 
 import { Database } from "bun:sqlite";
@@ -44,6 +44,7 @@ export interface VerdictRow {
 	readonly judgeModelId: string;
 	readonly verdict: JudgeVerdict;
 	readonly reason: null;
+	readonly detail: null;
 }
 
 /** One stored row — an unjudged marker. */
@@ -55,12 +56,13 @@ export interface UnjudgedRow {
 	readonly judgeModelId: string;
 	readonly verdict: null;
 	readonly reason: UnjudgedReason;
+	readonly detail: string | null;
 }
 
 export type StoreRow = VerdictRow | UnjudgedRow;
 
 /**
- * One leg of the calibration join (§12.5): the cheap judge's verdict and the
+ * One leg of the calibration join (12.5): the cheap judge's verdict and the
  * strong judge's verdict for the same runId + rubricVersion, paired so the
  * agreement-rate computation can compare band assignments class by class.
  */
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS verdict_rows (
 	judge_model_id TEXT NOT NULL,
 	verdict TEXT,
 	reason TEXT,
+	detail TEXT,
 	recorded_at TEXT NOT NULL,
 	dedupe_key TEXT NOT NULL UNIQUE
 );
@@ -97,6 +100,7 @@ interface RawRow {
 	judge_model_id: string;
 	verdict: string | null;
 	reason: string | null;
+	detail: string | null;
 }
 
 function toStoreRow(row: RawRow): StoreRow {
@@ -115,12 +119,19 @@ function toStoreRow(row: RawRow): StoreRow {
 			kind: "verdict",
 			verdict: validateVerdict(JSON.parse(row.verdict)),
 			reason: null,
+			detail: null,
 		};
 	}
 	if (row.reason === null || !(UNJUDGED_REASONS as readonly string[]).includes(row.reason)) {
 		throw new Error(`unjudged row ${row.id} has unknown reason — store invariant broken`);
 	}
-	return { ...base, kind: "unjudged", verdict: null, reason: row.reason as UnjudgedReason };
+	return {
+		...base,
+		kind: "unjudged",
+		verdict: null,
+		reason: row.reason as UnjudgedReason,
+		detail: row.detail ?? null,
+	};
 }
 
 export class VerdictStore {
@@ -132,7 +143,17 @@ export class VerdictStore {
 		this.#db = new Database(path);
 		this.#db.run("PRAGMA journal_mode = WAL;");
 		this.#db.run(SCHEMA);
+		this.#ensureDetailColumn();
 		this.#now = opts?.now ?? (() => new Date());
+	}
+
+	#ensureDetailColumn(): void {
+		const columns = this.#db
+			.query("PRAGMA table_info(verdict_rows)")
+			.all() as Array<{ name: string }>;
+		if (!columns.some((col) => col.name === "detail")) {
+			this.#db.run("ALTER TABLE verdict_rows ADD COLUMN detail TEXT;");
+		}
 	}
 
 	/**
@@ -150,6 +171,7 @@ export class VerdictStore {
 			judgeModelId: verdict.provenance.model,
 			verdictJson: JSON.stringify(verdict),
 			reason: null,
+			detail: null,
 		});
 	}
 
@@ -163,6 +185,7 @@ export class VerdictStore {
 		rubricVersion: string;
 		judgeModelId: string;
 		reason: UnjudgedReason;
+		detail?: string | null;
 	}): number | null {
 		if (!(UNJUDGED_REASONS as readonly string[]).includes(opts.reason)) {
 			throw new Error(`unjudged reason must be one of ${UNJUDGED_REASONS.join("/")}`);
@@ -174,6 +197,7 @@ export class VerdictStore {
 			judgeModelId: opts.judgeModelId,
 			verdictJson: null,
 			reason: opts.reason,
+			detail: opts.detail ?? null,
 		});
 	}
 
@@ -184,12 +208,13 @@ export class VerdictStore {
 		judgeModelId: string;
 		verdictJson: string | null;
 		reason: string | null;
+		detail: string | null;
 	}): number | null {
 		const dedupeKey = `${row.runId}|${row.rubricVersion}|${row.judgeModelId}`;
 		const result = this.#db.run(
 			`INSERT INTO verdict_rows
-				(kind, run_id, rubric_version, judge_model_id, verdict, reason, recorded_at, dedupe_key)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				(kind, run_id, rubric_version, judge_model_id, verdict, reason, detail, recorded_at, dedupe_key)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(dedupe_key) DO NOTHING`,
 			[
 				row.kind,
@@ -198,6 +223,7 @@ export class VerdictStore {
 				row.judgeModelId,
 				row.verdictJson,
 				row.reason,
+				row.detail,
 				this.#now().toISOString(),
 				dedupeKey,
 			],
@@ -231,7 +257,7 @@ export class VerdictStore {
 
 	/**
 	 * Per-rubric-version read: every row judged under `rubricVersion`, in
-	 * append order. Trend lines must never mix rubric versions (§12.3), so
+	 * append order. Trend lines must never mix rubric versions (12.3), so
 	 * this is the analytics surface's primary query.
 	 */
 	rowsForRubricVersion(rubricVersion: string): StoreRow[] {
@@ -242,7 +268,7 @@ export class VerdictStore {
 	}
 
 	/**
-	 * The calibration join (§12.5): for one rubric version, pair every run
+	 * The calibration join (12.5): for one rubric version, pair every run
 	 * that has a verdict from BOTH `cheapModelId` and `strongModelId`. The
 	 * disagreement rate between the two legs is the tracked signal that
 	 * drives any future taxonomy narrowing. Unjudged markers never join.
