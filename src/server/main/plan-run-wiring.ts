@@ -32,7 +32,6 @@ import {
 import { buildPrContent } from "../../runs/pr.ts";
 import type { RuntimeProvider } from "../../runtime/contract.ts";
 import type { SeedsCliDeps } from "../../seeds-cli/index.ts";
-import { showSeed } from "../../seeds-cli/index.ts";
 import type { IssueTracker } from "../../tracker/contract.ts";
 import { SeedsTracker } from "../../tracker/seeds-tracker.ts";
 import type { WarrenConfigCache } from "../../warren-config/index.ts";
@@ -225,9 +224,14 @@ export function bootPlanRunCoordinatorWiring(input: PlanRunWiringInput): PlanRun
 	const planRunCoordinatorConfig = loadPlanRunCoordinatorConfigFromEnv(env);
 	const planRunCoordinator = bootPlanRunCoordinator({
 		repos,
-		showSeed: async (projectId, seedId) => {
+		// warren-2d98: the coordinator's issue reads bind from the tracker
+		// seam — boot always wires a SeedsTracker, and the fallback keeps
+		// direct constructions of this wiring (tests) working when only the
+		// legacy facade is supplied.
+		getIssue: async (projectId, issueId) => {
 			const project = await repos.projects.require(projectId);
-			return showSeed(seedsCli, project.localPath, seedId);
+			const tracker = issueTracker ?? new SeedsTracker(seedsCli);
+			return tracker.getIssue({ projectId, localPath: project.localPath }, issueId);
 		},
 		// warren-63e7: the merge gate consumes the boot-resolved forge — no
 		// closure-captured token can ride a multi-hour poll loop anymore.
