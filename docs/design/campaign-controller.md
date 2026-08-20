@@ -2,15 +2,16 @@
 
 **Kind:** direction
 **Design state:** approved
-**Delivery:** unscheduled
+**Delivery:** next
+**Roadmap order:** 1
 **Arrived:** 2026-08-20
 
 This direction record defines the durable controller extension that moves
 long-running Warren campaigns off an operator's laptop and into the deployment.
 It fixes the extension kind, responsibility boundary, safety posture, and
-implementation sequence. It does not approve an implementation campaign,
-a database schema, a public manifest format, autonomous upstream
-contributions, or a learned router.
+implementation sequence. Roadmap promotion on 2026-08-20 commits Phase 1 only;
+later phases remain evidence-gated. It does not approve a database schema, a
+public manifest format, autonomous upstream contributions, or a learned router.
 
 **Grounds:** [`PHILOSOPHY.md`](../PHILOSOPHY.md),
 [`extensions.md`](./extensions.md),
@@ -34,11 +35,11 @@ The division of responsibility is:
 
 > **Warren executes agents. A campaign controller executes policy.**
 
-The first intended controller is a durable dogfood coordinator. An operator
-approves a bounded issue campaign, may close the laptop, and the controller
-uses Warren's run and plan-run primitives to carry it forward. It survives its
-own restart, enforces campaign budgets, stops at unsafe states, and produces a
-final report.
+The first controller is a narrow generic controller with a dogfood adapter. An
+operator approves a bounded issue campaign, may close the laptop, and the
+controller uses Warren's run and plan-run primitives to carry it forward. It
+survives its own restart, enforces campaign budgets, stops at unsafe states,
+and produces a final report.
 
 Historical replay is the second intended controller workload. It has a
 separate trust boundary because it handles detached mirrors, sanitized case
@@ -793,19 +794,22 @@ This direction does not approve:
 - **Core dependency.** No Warren route, UI component, or boot path may require
   the controller to exist.
 
-## 19. Promotion trigger
+## 19. Promoted v1 boundary
 
-This direction is ready for roadmap promotion when the owner chooses the v1
-boundary and accepts its temporary security posture. The smallest coherent v1
-is Phase 1: approved plan-run campaigns, durable reconciliation, budget
-control, fail-closed attention, and reporting, with all PR mutations manual.
+Roadmap promotion on 2026-08-20 commits the smallest coherent v1: approved
+plan-run campaigns, durable reconciliation, budget control, fail-closed
+attention, and reporting, with all PR mutations manual. The mirror pilot begins
+manually, so controller delivery does not block the first Snakemake cohort.
 
-The first implementation plan must explicitly decide:
+The owner recorded these implementation choices:
 
-1. whether the initial package is dogfood-specific or a narrow generic
-   controller with a dogfood adapter;
-2. how operators authenticate to the controller API;
-3. whether deployment uses the current operator token on a dedicated Warren
-   instance or waits for scoped service actors; and
-4. whether durable Warren dispatch correlation is a prerequisite or an
-   explicitly accepted `dispatch_uncertain` limitation.
+1. the initial package is a narrow generic controller with a dogfood adapter;
+2. operators authenticate to the controller API with a separate strong
+   controller credential;
+3. v1 may use Warren's current operator token only against a dedicated Warren
+   deployment, rather than waiting for scoped service actors; and
+4. durable Warren dispatch correlation is not a prerequisite. An ambiguous
+   response enters `dispatch_uncertain` and fails closed instead of retrying.
+
+Repeated operation may pay for scoped service actors and durable server-side
+correlation. Neither is speculative Phase 1 work.

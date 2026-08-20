@@ -29,8 +29,8 @@ This table is the complete inventory. `Approved` means a design is coherent enou
 | Record | Kind | Design state | Delivery | Arrived |
 |---|---|---|---|---|
 | [The corpus flywheel](./corpus-flywheel.md) | `direction` | `draft` | `unscheduled` | 2026-08-15 |
-| [Campaign controller](./campaign-controller.md) | `direction` | `approved` | `unscheduled` | 2026-08-20 |
-| [External-repository mirror pilot](./external-repository-mirror-pilot.md) | `pilot` | `approved` | `unscheduled` | 2026-08-20 |
+| [External-repository mirror pilot](./external-repository-mirror-pilot.md) | `pilot` | `approved` | `now` | 2026-08-20 |
+| [Campaign controller](./campaign-controller.md) | `direction` | `approved` | `next` | 2026-08-20 |
 | [Resumable agent environments](./resumable-agent-environments.md) | `proposal` | `proposed` | `unscheduled` | 2026-08-20 |
 | [Agent analytics](./agent-analytics.md) | `direction` | `approved` | `mixed` | 2026-08-11 |
 | [Extensions](./extensions.md) | `direction` | `proposed` | `mixed` | 2026-08-04 |
@@ -51,13 +51,13 @@ This table is the complete inventory. `Approved` means a design is coherent enou
 
 ## Pre-roadmap discovery
 
-The current unscheduled records are the draft [corpus flywheel](./corpus-flywheel.md), the approved [campaign controller](./campaign-controller.md), the approved [external-repository mirror pilot](./external-repository-mirror-pilot.md), and the proposed [resumable agent environments](./resumable-agent-environments.md). They remain ideas until the roadmap promotes them.
+The current unscheduled records are the draft [corpus flywheel](./corpus-flywheel.md) and the proposed [resumable agent environments](./resumable-agent-environments.md). They remain ideas until the roadmap promotes them.
 
 ## Build order
 
 [`ROADMAP.md`](../../ROADMAP.md) is the only source of build order. When a design is promoted, change its delivery to `now` or `next`, add `**Roadmap order:** N` for a `next` record, and reflect that lane here. Do not infer commitment from approval or from a detailed design.
 
-No design record is currently in the `now` or `next` lane. The roadmap's next three builds use already-shipped contracts: Linear uses the [`IssueTracker` contract](./issue-tracker.md), while GitLab and Forgejo/Gitea use the [`Forge` contract](./forge-contract.md).
+The [external-repository mirror pilot](./external-repository-mirror-pilot.md) is the `now` campaign. [Campaign controller](./campaign-controller.md) Phase 1 is roadmap order 1 in `next`; later controller phases remain evidence-gated. Integration breadth uses the already-shipped [`IssueTracker`](./issue-tracker.md) and [`Forge`](./forge-contract.md) contracts when a real deployment pays for it, but it is not currently scheduled.
 
 ## Shipped records
 

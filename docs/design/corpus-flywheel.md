@@ -18,8 +18,8 @@ warren-9236.
 **Grounds:** [`agent-analytics.md`](./agent-analytics.md) §1 (the
 corpus thesis), §8 (the closed loop), §12 (the judge layer);
 [`PHILOSOPHY.md`](../PHILOSOPHY.md) rules 1, 2, and 5;
-[ROADMAP.md](../../ROADMAP.md) Next items 1–4 and the Colonies entry
-(warren-2fa8).
+[ROADMAP.md](../../ROADMAP.md), the mirror-pilot `now` campaign, and
+the Colonies entry (warren-2fa8).
 
 ---
 
@@ -90,21 +90,19 @@ run is an update — so there is no retrain cadence to schedule.
 
 ## 3. The six-step direction
 
-**Step 1 — seam completion.** The `IssueTracker` cut,
-`AgentRuntimeAdapter` phases 1–2, and the burrow excision. These are
-already ROADMAP Next items 1–4. This direction adds a second payer,
-because cheap model, harness, and tracker switching is what makes new
-dispatch arms cheap to add. No new work enters the queue.
+**Step 1 — seam completion. Shipped.** The `IssueTracker` cut,
+`AgentRuntimeAdapter` phases 1–2, and the burrow excision shipped by
+v0.18.0. Cheap model, harness, and tracker switching now makes new
+dispatch arms cheap to add. No new work enters the queue from this
+step.
 
-**Step 2 — record the dispatch context.** For every dispatch, log the
-issue features, the chosen action (agent, model, cost cap, replica
-count), the queue state, and later the policy's recommendation. The
-rule that keeps the pipeline honest: **facts are features, verdicts
-are labels.** Mechanical data — outcomes, costs, tool calls, gate
-results, merge state — feeds the policy as input. Judge verdicts ride
-along as labels for reward shaping and review ranking, never as
-trusted input features. This step is additive and does not wait on
-step 1.
+**Step 2 — record the dispatch context. Shipped.** Every dispatch logs
+the issue features, chosen action, override sources, queue snapshot,
+and normalized retry lineage. The rule that keeps the pipeline honest
+remains: **facts are features, verdicts are labels.** Mechanical data —
+outcomes, costs, tool calls, gate results, merge state — feeds the
+policy as input. Judge verdicts ride along as labels for reward shaping
+and review ranking, never as trusted input features.
 
 **Step 3 — the mirror fleet.** Run warren hard against three to five
 **detached public mirrors** of external OSS repos (candidates: an

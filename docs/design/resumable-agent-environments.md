@@ -35,8 +35,11 @@ process freezing and memory checkpoints may later accelerate this flow, but
 they are optional capabilities with a continuously tested reconstructive
 fallback.
 
-This record is a direction lock, not an implementation plan. Four product
-and topology questions remain open in [Open questions](#open-questions).
+This record is a direction lock, not an implementation plan. It remains
+unscheduled; repeated measured setup, service, or multi-repository continuity
+friction from the external-repository mirror pilot is its roadmap promotion
+trigger. Product and topology questions remain open in
+[Open questions](#open-questions).
 
 ## Why this is a separate resource
 

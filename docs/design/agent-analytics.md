@@ -175,11 +175,10 @@ modules, and coverage is uneven.
   is therefore not harness-agnostic, and its response cannot separate
   "the harness emitted no commands" from "the commands did not parse."
 
-This is the `AgentRuntimeAdapter` seam, ROADMAP Next item 2.
-**Analytics is a second, larger payer for that seam.** Add a
-`toolShape` (and a `fileShape` for path extraction) beside `usageShape`
-in the adapter registry, and every insight in §4 becomes
-harness-agnostic by construction.
+This was the `AgentRuntimeAdapter` seam. The seam, runtime-owned
+extractors, and harness repatriation shipped by v0.17.0; Pi tool-shape
+repair followed before the v0.18.0 corpus campaign. Analytics was a
+second, larger payer for making those semantics harness-agnostic.
 
 ### 5.3 Outcome — success means "exited 0"
 

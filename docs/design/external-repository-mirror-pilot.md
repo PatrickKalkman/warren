@@ -2,13 +2,15 @@
 
 **Kind:** pilot
 **Design state:** approved
-**Delivery:** unscheduled
+**Delivery:** now
 **Arrived:** 2026-08-20
 
-Owner approval was recorded on 2026-08-20. This record fixes the pilot target
-set, operating model, experiment sequence, and success criteria. It does not
-approve upstream pull requests, a router, replica dispatch, or a new core
-feature campaign.
+Owner approval was recorded on 2026-08-20 and roadmap promotion on 2026-08-20.
+This record fixes the pilot target set, operating model, experiment sequence,
+and success criteria. Execution plans and structured study records live in the
+private [`warren-experiments`](https://github.com/jayminwest/warren-experiments)
+repository. It does not approve upstream pull requests, a router, replica
+dispatch, or a new core feature campaign.
 
 **Preferred first target:**
 [`snakemake/snakemake`](https://github.com/snakemake/snakemake).
@@ -81,8 +83,9 @@ Initial protocol:
 
 - one fixed agent, provider, model, and cost cap;
 - five setup cases for Snakemake, excluded from headline results;
-- ten scored Snakemake cases after the setup gate passes;
-- five setup and ten scored cases on the transfer repository;
+- five setup cases for the transfer repository, also excluded;
+- the ten-run smoke gate across both repositories before either scored cohort;
+- ten scored cases on each repository after that gate passes;
 - CPU-local, deterministic tasks only;
 - no credentials, private data, GPU, HPC scheduler, or large downloads;
 - no model comparison, replica dispatch, or prompt tournament;
@@ -398,9 +401,11 @@ experimental apparatus:
 - hidden tests can be applied after the run; and
 - failures can be assigned to a named category.
 
-The scored cohort begins after ten consecutive smoke runs across the first two
-repositories show correct dispatch context and no unexplained configuration or
-execution changes.
+The scored cohorts begin after ten consecutive setup runs — five on Snakemake
+and five on the transfer repository — show correct dispatch context and no
+unexplained configuration or execution changes. This gate deliberately delays
+Snakemake scoring until the transfer setup proves that the apparatus is not
+Snakemake-specific.
 
 ## 11. Scored replay
 

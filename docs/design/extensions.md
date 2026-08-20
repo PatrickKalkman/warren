@@ -24,7 +24,7 @@ catalog-in-waiting).
 | Observe-only lifecycle bus | `shipped` | v0.13.0 |
 | Audit-log observer extension | `shipped` | pl-116e, v0.14.1 |
 | Provider extensions through RemoteTracker | `shipped` | v0.18.0 core bridge; implementations release separately |
-| Durable campaign controllers | `unscheduled` | Approved direction in [`campaign-controller.md`](./campaign-controller.md) |
+| Durable campaign controllers | `next` | Phase 1 is roadmap order 1; later phases remain evidence-gated in [`campaign-controller.md`](./campaign-controller.md) |
 | Public catalog and general delivery mechanism | `unscheduled` | Must follow real extension friction |
 | Tier-2 mutating hooks | `deferred` | No consumer currently pays for them |
 
@@ -67,10 +67,8 @@ eventual out-of-process delivery mechanism will mirror.
 ### Providers (committed 2026-08-04 — trackers first)
 
 A provider implements a warren-defined contract that warren *calls*
-and waits on: fetch an issue, close an issue, open a PR. Today every
-provider seam (`RuntimeProvider`, `AuthProvider`, the planned `Forge`
-and `IssueTracker`) is an in-process TypeScript implementation
-selected at boot.
+and waits on: fetch an issue, close an issue, open a PR. The core provider seams (`RuntimeProvider`, `AuthProvider`, `Forge`,
+and `IssueTracker`) resolve implementations once at boot.
 
 The committed direction (ROADMAP "Decisions already made",
 2026-08-04): providers live out-of-process too, behind a **bridge
@@ -81,20 +79,19 @@ two-implementation rule; the bridge is simply one of the
 implementations, and every external provider walks through it. Prior
 art: Concourse resource types, Drone/Woodpecker plugins.
 
-Scope of the commitment: trackers only, sequenced after the Forge
-campaign per ROADMAP Next item 3. Seeds stays in-core as
+Scope of the commitment: trackers only. Seeds stays in-core as
 implementation #1; `RemoteTracker` is implementation #2 and the last
-tracker core adds; Linear ships as the first external tracker
-extension, with Jira, GitLab, and GitHub Issues on the same path.
-Extensions hold their own tracker credentials — warren never stores
-them. A wire protocol is a far heavier promise than a TypeScript
-interface — PHILOSOPHY rule 6 names API churn as the ecosystem-killer
-— so the contract stays experimental until a genuinely foreign
-implementation survives it unchanged, proven by a published
-conformance suite rather than a grep. Forges are explicitly **not**
-part of this commitment (see §5).
+tracker core adds. Linear remains the intended first external tracker,
+with Jira, GitLab, and GitHub Issues on the same path, but implementation
+breadth is deferred until a real deployment pays for it. Extensions hold
+their own tracker credentials — Warren never stores them. A wire
+protocol is a far heavier promise than a TypeScript interface —
+PHILOSOPHY rule 6 names API churn as the ecosystem-killer — so the
+contract stays experimental until a genuinely foreign implementation
+survives it unchanged, proven by the published conformance suite rather
+than a grep. Forges stay in-core by the 2026-08-20 roadmap decision.
 
-### Controllers (approved direction, unscheduled)
+### Controllers (Phase 1 next)
 
 A controller is a long-running external operator. It owns durable workflow
 state, reads Warren through published surfaces, and invokes Warren's existing
@@ -194,12 +191,12 @@ day the first entry does.
 - **Admin-action hooks** — project added/deleted, agent edits, auth
   events are not on the bus; add them when the first consumer needs
   them (the audit log's reserved list is the queue).
-- **Provider wire protocols** — committed for trackers (§1,
-  2026-08-04); the `warren-tracker/v1` contract design doc arrives
-  when the seam work starts, after the Forge campaign, and consumes
-  the pl-116e friction report.
-- **Forge extensions** — the same bridge logic applied to forges cuts
-  deeper (PR-opening sits directly behind the kernel's push); parked.
+- **Provider wire protocols** — `warren-tracker/v1` and its published
+  conformance suite shipped in v0.18.0. The protocol remains experimental
+  until a genuinely foreign implementation survives the suite unchanged.
+- **Forge extensions** — resolved against a bridge on 2026-08-20. GitLab and
+  Forgejo/Gitea arrive as in-core registry arms when paid for; a remote Forge
+  returns only if someone cannot wait for a core release.
 - **Tier-2 mutating hooks** — deferred until paid, unchanged; the
   likely first payer is a policy gate that must reject before
   dispatch.
