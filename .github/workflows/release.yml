@@ -16,6 +16,7 @@ jobs:
     outputs:
       release: ${{ steps.version-check.outputs.release }}
       version: ${{ steps.version-check.outputs.version }}
+      release_sha: ${{ steps.version-check.outputs.release_sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -39,15 +40,29 @@ jobs:
 
       - name: Check if version is unreleased
         id: version-check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           LOCAL_VERSION=$(node -p "require('./package.json').version")
-          if git ls-remote --exit-code --tags origin "v$LOCAL_VERSION" >/dev/null 2>&1; then
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "Tag v$LOCAL_VERSION already exists; skipping release."
-          else
+          TAG="v${LOCAL_VERSION}"
+          if ! git ls-remote --exit-code --tags origin "${TAG}" >/dev/null 2>&1; then
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
-            echo "Releasing v$LOCAL_VERSION."
+            echo "release_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "Releasing ${TAG}."
+          elif gh release view "${TAG}" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
+            # A failed chain deliberately leaves a draft. A later manual
+            # dispatch must use the CURRENT workflow while deploying the exact
+            # commit the annotated tag names, not current main (warren-a8e6).
+            RELEASE_SHA=$(git rev-list -n 1 "${TAG}^{commit}")
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+            echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "Resuming draft ${TAG} at ${RELEASE_SHA}."
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already has a final release; skipping release."
           fi
 
       - name: Verify version sync
@@ -142,7 +157,7 @@ jobs:
       packages: write
     secrets: inherit
     with:
-      sha: ${{ github.sha }}
+      sha: ${{ needs.release.outputs.release_sha }}
       deploy: true
       version: ${{ needs.release.outputs.version }}
 
@@ -164,7 +179,12 @@ jobs:
       contents: read
       id-token: write # npm provenance attestation
     steps:
+      # Pin to the released commit, not github.sha: on a draft-resume dispatch
+      # (warren-a8e6) main may have moved past the tag, and the npm tarball
+      # must match what the tag names.
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.release_sha }}
 
       - uses: oven-sh/setup-bun@v2
         with:

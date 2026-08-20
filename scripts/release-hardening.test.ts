@@ -191,3 +191,119 @@ describe("auto-merge app credential heartbeat", () => {
 		}
 	});
 });
+
+// A failed release chain leaves a draft release behind a pushed tag. Before
+// warren-a8e6 that state was unrecoverable with a workflow fix: `gh run rerun`
+// replays the OLD workflow commit, and a fresh workflow_dispatch saw the tag
+// and skipped the whole chain. The version-check step now treats an existing
+// DRAFT as resumable and emits the peeled tag commit as `release_sha`, so
+// deploy/publish build the exact commit the tag names even though main has
+// moved on. A FINAL release still short-circuits.
+type VersionCheck = { exitCode: number; output: string; outputs: Record<string, string> };
+
+function runVersionCheck(opts: {
+	tagExists: boolean;
+	draft?: boolean;
+	tagSha?: string;
+	githubSha: string;
+}): VersionCheck {
+	const script = stepScript("release", "Check if version is unreleased");
+	const dir = mkdtempSync(join(tmpdir(), "warren-version-check-"));
+	try {
+		const bin = join(dir, "bin");
+		Bun.spawnSync({ cmd: ["mkdir", "-p", bin] });
+		writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "9.9.9" }));
+		const stub = (name: string, body: string) => {
+			const path = join(bin, name);
+			writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`);
+			Bun.spawnSync({ cmd: ["chmod", "+x", path] });
+		};
+		stub("node", `[ "$1" = "-p" ] || exit 99\necho 9.9.9`);
+		stub(
+			"git",
+			[
+				`case "$1" in`,
+				`  ls-remote) ${opts.tagExists ? "exit 0" : "exit 2"} ;;`,
+				`  rev-list) echo "${opts.tagSha ?? ""}" ;;`,
+				`  *) exit 99 ;;`,
+				`esac`,
+			].join("\n"),
+		);
+		stub("gh", opts.draft === undefined ? `exit 1` : `echo ${opts.draft ? "true" : "false"}`);
+		const out = join(dir, "github-output");
+		writeFileSync(out, "");
+		const result = Bun.spawnSync({
+			cmd: ["bash", "-c", script],
+			cwd: dir,
+			env: {
+				PATH: `${bin}:${process.env.PATH ?? ""}`,
+				GITHUB_OUTPUT: out,
+				GITHUB_SHA: opts.githubSha,
+				GH_TOKEN: "stub",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const outputs: Record<string, string> = {};
+		for (const line of readFileSync(out, "utf8").split("\n")) {
+			const eq = line.indexOf("=");
+			if (eq > 0) outputs[line.slice(0, eq)] = line.slice(eq + 1);
+		}
+		return {
+			exitCode: result.exitCode,
+			output: `${result.stdout.toString()}${result.stderr.toString()}`,
+			outputs,
+		};
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+describe("a failed release resumes from its draft at the tagged commit", () => {
+	test("an unreleased version releases at the pushed commit", () => {
+		const r = runVersionCheck({ tagExists: false, githubSha: "aaa111" });
+		expect(r.exitCode).toBe(0);
+		expect(r.outputs).toEqual({ release: "true", version: "9.9.9", release_sha: "aaa111" });
+	});
+
+	test("a tag with a draft release resumes at the tag's commit, not current main", () => {
+		const r = runVersionCheck({
+			tagExists: true,
+			draft: true,
+			tagSha: "tag000",
+			githubSha: "main999",
+		});
+		expect(r.exitCode).toBe(0);
+		expect(r.outputs).toEqual({ release: "true", version: "9.9.9", release_sha: "tag000" });
+		expect(r.output).toContain("Resuming draft v9.9.9 at tag000");
+	});
+
+	test("a tag with a final release is skipped", () => {
+		const r = runVersionCheck({ tagExists: true, draft: false, githubSha: "main999" });
+		expect(r.exitCode).toBe(0);
+		expect(r.outputs).toEqual({ release: "false" });
+	});
+
+	test("a tag whose release lookup fails is treated as final, never re-released", () => {
+		// gh exits non-zero (no release object at all): the conservative arm wins.
+		const r = runVersionCheck({ tagExists: true, githubSha: "main999" });
+		expect(r.exitCode).toBe(0);
+		expect(r.outputs).toEqual({ release: "false" });
+	});
+
+	test("the release job exports release_sha and deploy + publish consume it", () => {
+		// Assembled at runtime so Biome's noTemplateCurlyInString stays quiet.
+		const stepExpr = `\${{ steps.version-check.outputs.release_sha }}`;
+		const needsExpr = `\${{ needs.release.outputs.release_sha }}`;
+		const wf = loadRelease() as Workflow & {
+			jobs?: Record<
+				string,
+				Job & { outputs?: Record<string, string>; with?: Record<string, string> }
+			>;
+		};
+		expect(wf.jobs?.release?.outputs?.release_sha).toBe(stepExpr);
+		expect(wf.jobs?.deploy?.with?.sha).toBe(needsExpr);
+		const checkout = releaseSteps("publish").find((s) => s.uses?.startsWith("actions/checkout"));
+		expect(checkout?.with?.ref).toBe(needsExpr);
+	});
+});
