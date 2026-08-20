@@ -115,7 +115,7 @@ Warren dispatches ephemeral agents at your GitHub repos and controls the whole r
 
 A run completes a task, validates the changes, pushes a branch, and exits. **One container, one volume, one HTTP API, one UI.**
 
-Warren runs warren. In the seven days before 2026-08-18, warren-dispatched agents authored 91 of this repo's 239 commits (38%). The product judged and audited that work itself, in public at [app.warren.run](https://app.warren.run).
+Warren runs warren. The product dispatches, sandboxes, judges, and audits the agents that work this repo, in public at [app.warren.run](https://app.warren.run).
 
 ## Who this is for
 
