@@ -29,6 +29,7 @@ This table is the complete inventory. `Approved` means a design is coherent enou
 | Record | Kind | Design state | Delivery | Arrived |
 |---|---|---|---|---|
 | [The corpus flywheel](./corpus-flywheel.md) | `direction` | `draft` | `unscheduled` | 2026-08-15 |
+| [Campaign controller](./campaign-controller.md) | `direction` | `approved` | `unscheduled` | 2026-08-20 |
 | [External-repository mirror pilot](./external-repository-mirror-pilot.md) | `pilot` | `approved` | `unscheduled` | 2026-08-20 |
 | [Resumable agent environments](./resumable-agent-environments.md) | `proposal` | `proposed` | `unscheduled` | 2026-08-20 |
 | [Agent analytics](./agent-analytics.md) | `direction` | `approved` | `mixed` | 2026-08-11 |
@@ -50,7 +51,7 @@ This table is the complete inventory. `Approved` means a design is coherent enou
 
 ## Pre-roadmap discovery
 
-The current unscheduled records are the draft [corpus flywheel](./corpus-flywheel.md), the approved [external-repository mirror pilot](./external-repository-mirror-pilot.md), and the proposed [resumable agent environments](./resumable-agent-environments.md). They remain ideas until the roadmap promotes them.
+The current unscheduled records are the draft [corpus flywheel](./corpus-flywheel.md), the approved [campaign controller](./campaign-controller.md), the approved [external-repository mirror pilot](./external-repository-mirror-pilot.md), and the proposed [resumable agent environments](./resumable-agent-environments.md). They remain ideas until the roadmap promotes them.
 
 ## Build order
 
@@ -75,7 +76,7 @@ A shipped record preserves rationale and contract history. Its `Current truth` f
 | 2026-08-11 | Agent analytics; Forge contract |
 | 2026-08-15 | The corpus flywheel |
 | 2026-08-17 | Docker runtime provider |
-| 2026-08-20 | External-repository mirror pilot; IssueTracker contract; resumable agent environments |
+| 2026-08-20 | Campaign controller; external-repository mirror pilot; IssueTracker contract; resumable agent environments |
 
 ## Adding or changing a record
 

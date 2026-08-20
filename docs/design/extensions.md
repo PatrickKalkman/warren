@@ -24,6 +24,7 @@ catalog-in-waiting).
 | Observe-only lifecycle bus | `shipped` | v0.13.0 |
 | Audit-log observer extension | `shipped` | pl-116e, v0.14.1 |
 | Provider extensions through RemoteTracker | `shipped` | v0.18.0 core bridge; implementations release separately |
+| Durable campaign controllers | `unscheduled` | Approved direction in [`campaign-controller.md`](./campaign-controller.md) |
 | Public catalog and general delivery mechanism | `unscheduled` | Must follow real extension friction |
 | Tier-2 mutating hooks | `deferred` | No consumer currently pays for them |
 
@@ -40,9 +41,9 @@ vocabulary for closing those gaps, so the flagship build, the roadmap,
 and the public site tell one story while the actual contracts stay
 unfrozen.
 
-## 1. Two extension kinds
+## 1. Three extension kinds
 
-Warren extensions split into two kinds with different data flow. The
+Warren extensions split into three kinds with different data flow. The
 tiers in PHILOSOPHY (Tier 0 skills / Tier 1 containers / Tier 2
 operator hooks) answer *where code runs and who trusts it*. The kinds
 answer *which way the calls point*.
@@ -92,6 +93,21 @@ interface — PHILOSOPHY rule 6 names API churn as the ecosystem-killer
 implementation survives it unchanged, proven by a published
 conformance suite rather than a grep. Forges are explicitly **not**
 part of this commitment (see §5).
+
+### Controllers (approved direction, unscheduled)
+
+A controller is a long-running external operator. It owns durable workflow
+state, reads Warren through published surfaces, and invokes Warren's existing
+public command APIs under an explicit operator-approved policy. Warren never
+calls it or reads its endpoint. A controller is therefore neither an observer
+(it mutates) nor a provider (Warren does not wait on it).
+
+The first payer is long-running dogfood and historical-replay campaigns that
+currently depend on a laptop session remaining alive. The full boundary,
+safety model, and phased sequence live in
+[`campaign-controller.md`](./campaign-controller.md). Controllers do not
+weaken the observe-only `warren-ext/v1` bus and do not imply Tier-2 mutating
+hooks.
 
 ## 2. The flagship observer: the audit log (pl-116e)
 
