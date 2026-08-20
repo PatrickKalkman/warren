@@ -20,7 +20,9 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 
 // Assembled at runtime so the source has no stray GitHub Actions ${{ ... }}
 // placeholder (Biome's noTemplateCurlyInString flags literal ones).
-const SHA_EXPR = `\${{ github.sha }}`;
+// release.yml resolves the released commit itself (warren-a8e6): github.sha on a
+// draft-resume dispatch is whatever main is now, not what the tag names.
+const SHA_EXPR = `\${{ needs.release.outputs.release_sha }}`;
 // Shell (not Actions) interpolation, but the same lint rule applies.
 const NEW_NAME_EXPR = `newName: \${AR_BASE}/warren`;
 
@@ -111,6 +113,108 @@ function stepScript(job: string, stepName: string): string {
 	if (step?.run === undefined) throw new Error(`no step "${stepName}" with a run script`);
 	return step.run;
 }
+
+// warren-5ca2: the v0.18.0 release failed its deploy three times on
+// `kubectl apply -k` when a bursty GKE API server answered InternalError for a
+// different handful of resources each pass. The step now renders once and
+// applies each resource on its own with a bounded per-resource retry, so the
+// overlay converges without ever needing one pass where every GET succeeds.
+// Run the real step script against a stub kubectl to prove the shape.
+function runApplyOverlay(opts: {
+	/** per-resource failure counts before success; -1 = never succeeds */
+	failures: Record<string, number>;
+	attempts: number;
+}): { exitCode: number; output: string; applied: string[] } {
+	const script = stepScript("deploy", "Apply overlay");
+	const dir = mkdtempSync(join(tmpdir(), "warren-apply-overlay-"));
+	try {
+		const bin = join(dir, "bin");
+		const state = join(dir, "state");
+		Bun.spawnSync({ cmd: ["mkdir", "-p", bin, state] });
+		writeFileSync(join(state, "failures.json"), JSON.stringify(opts.failures));
+		// Stub kubectl: `kustomize -o DIR` writes three rendered files (a
+		// namespace and two namespaced objects); `apply -f FILE` consults the
+		// per-resource failure budget and appends to an apply log on success.
+		const stub = join(bin, "kubectl");
+		writeFileSync(
+			stub,
+			[
+				"#!/usr/bin/env bash",
+				'case "$1" in',
+				"  kustomize)",
+				`    out="\${@: -1}"`,
+				"    for r in warren_apps_v1_deployment_warren v1_namespace_warren warren_v1_service_warren; do",
+				`      echo "kind: stub" > "\${out}/\${r}.yaml"`,
+				"    done ;;",
+				"  apply)",
+				'    name=$(basename "$3" .yaml)',
+				`    left=$(node -e 'const f=require(process.argv[1]);const n=f[process.argv[2]]??0;if(n!==0&&n!==-1)f[process.argv[2]]=n-1;require("fs").writeFileSync(process.argv[1],JSON.stringify(f));console.log(n)' "${state}/failures.json" "$name")`,
+				'    if [ "$left" != "0" ]; then echo "Error from server (InternalError): $name" >&2; exit 1; fi',
+				`    echo "$name" >> "${state}/applied"`,
+				'    echo "$name configured" ;;',
+				"  *) exit 99 ;;",
+				"esac",
+			].join("\n"),
+		);
+		chmodSync(stub, 0o755);
+		const result = Bun.spawnSync({
+			cmd: ["bash", "-c", script],
+			cwd: dir,
+			env: {
+				PATH: `${bin}:${process.env.PATH ?? ""}`,
+				RUNNER_TEMP: dir,
+				APPLY_ATTEMPTS: String(opts.attempts),
+				APPLY_RETRY_SECONDS: "0",
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		let applied: string[] = [];
+		try {
+			applied = readFileSync(join(state, "applied"), "utf8").trim().split("\n");
+		} catch {
+			applied = [];
+		}
+		return {
+			exitCode: result.exitCode,
+			output: `${result.stdout.toString()}${result.stderr.toString()}`,
+			applied,
+		};
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+describe("gke-live overlay apply converges per resource", () => {
+	test("a resource that fails transiently is retried on its own until it lands", () => {
+		const r = runApplyOverlay({ failures: { warren_v1_service_warren: 2 }, attempts: 4 });
+		expect(r.exitCode).toBe(0);
+		// Namespaces first, then every other resource exactly once.
+		expect(r.applied).toEqual([
+			"v1_namespace_warren",
+			"warren_apps_v1_deployment_warren",
+			"warren_v1_service_warren",
+		]);
+		expect(r.output).toContain("warren_v1_service_warren: attempt 3/4");
+	});
+
+	test("a resource that never converges is fatal after the budget, after the rest applied", () => {
+		const r = runApplyOverlay({ failures: { warren_apps_v1_deployment_warren: -1 }, attempts: 3 });
+		expect(r.exitCode).toBe(1);
+		expect(r.output).toContain(
+			"::error::kubectl apply warren_apps_v1_deployment_warren failed after 3 attempts",
+		);
+		expect(r.output).toContain("::error::1 resource(s) failed to apply");
+		// The failure did not stop the service from converging.
+		expect(r.applied).toEqual(["v1_namespace_warren", "warren_v1_service_warren"]);
+	});
+
+	test("a render failure is fatal before anything is applied", () => {
+		const script = stepScript("deploy", "Apply overlay");
+		expect(script).toContain("kubectl kustomize deploy/k8s/overlays/gke-live -o");
+		expect(script).toContain("|| exit 1");
+	});
+});
 
 describe("gke-live overlay image remap", () => {
 	test("the kustomize match key equals the committed gke template's newName", () => {

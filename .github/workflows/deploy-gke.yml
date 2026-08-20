@@ -357,8 +357,50 @@ jobs:
       - name: Validate render (kubectl kustomize)
         run: kubectl kustomize deploy/k8s/overlays/gke-live >/dev/null
 
+      # `kubectl apply -k` GETs every object in the overlay before patching,
+      # and a briefly unhealthy API server answers InternalError for arbitrary
+      # ones (warren-5ca2: v0.18.0 needed three failed attempts before this
+      # landed). Retrying the WHOLE overlay needs one pass where every GET
+      # succeeds, which a bursty API server may never give. So render once,
+      # then apply each resource on its own with its own bounded retry: a
+      # resource that already converged is never re-rolled by a neighbour's
+      # failure. Namespaces go first so every namespaced object has a home.
+      # A resource that is still failing after the budget is fatal, after the
+      # rest have had their chance, with every error left in the log — a
+      # persistent manifest or auth failure is never hidden.
       - name: Apply overlay
-        run: kubectl apply -k deploy/k8s/overlays/gke-live
+        env:
+          APPLY_ATTEMPTS: "8"
+          APPLY_RETRY_SECONDS: "10"
+        run: |
+          set -uo pipefail
+          RENDERED="${RUNNER_TEMP}/gke-live-rendered"
+          rm -rf "${RENDERED}" && mkdir -p "${RENDERED}"
+          kubectl kustomize deploy/k8s/overlays/gke-live -o "${RENDERED}" || exit 1
+          files=()
+          for f in "${RENDERED}"/*_namespace_*.yaml; do [ -e "${f}" ] && files+=("${f}"); done
+          for f in "${RENDERED}"/*.yaml; do
+            case "${f}" in *_namespace_*) ;; *) files+=("${f}") ;; esac
+          done
+          failed=0
+          for f in "${files[@]}"; do
+            name=$(basename "${f}" .yaml)
+            attempt=1
+            until kubectl apply -f "${f}"; do
+              if [ "${attempt}" -ge "${APPLY_ATTEMPTS}" ]; then
+                echo "::error::kubectl apply ${name} failed after ${APPLY_ATTEMPTS} attempts"
+                failed=$((failed + 1))
+                break
+              fi
+              sleep $((APPLY_RETRY_SECONDS * attempt))
+              attempt=$((attempt + 1))
+              echo "kubectl apply ${name}: attempt ${attempt}/${APPLY_ATTEMPTS}"
+            done
+          done
+          if [ "${failed}" -gt 0 ]; then
+            echo "::error::${failed} resource(s) failed to apply after ${APPLY_ATTEMPTS} attempts each"
+            exit 1
+          fi
 
       - name: Wait for rollout
         run: kubectl -n warren rollout status deploy/warren --timeout=300s
