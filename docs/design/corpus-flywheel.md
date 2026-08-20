@@ -1,10 +1,13 @@
 # The corpus flywheel — dispatch data as an RL asset
 
-**Status:** Draft direction record from an owner conversation on
-2026-08-15. No owner go is recorded. This record fixes vocabulary and
-sequence only. It designs no schema, no store, and no extension
-package, per ROADMAP rule 2. Nothing here is scheduled.
-**Date:** 2026-08-15.
+**Kind:** direction
+**Design state:** draft
+**Delivery:** unscheduled
+**Arrived:** 2026-08-15
+
+No owner go is recorded. This record fixes vocabulary and sequence only.
+It designs no schema, no store, and no extension package, per ROADMAP
+rule 2. Nothing here is scheduled.
 **Amended:** 2026-08-15, same day — the conversation continued.
 Additions: the mission positioning (§0), mirrors instead of forks
 (§3 step 3), the consent ladder and disclosure (§5), and historical

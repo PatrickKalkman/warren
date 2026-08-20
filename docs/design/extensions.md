@@ -1,18 +1,31 @@
 # Extensions — kinds, packaging, and the road to a public catalog
 
-**Status:** Provisional — a direction record, not a spec. This document
-names the vocabulary and the sequencing for warren's extension
-ecosystem. It deliberately does **not** design the manifest, the
-loader, or the delivery mechanism. ROADMAP Next item 6 forbids that
-design on speculation: the flagship extension build (plan **pl-116e**)
-produces the friction report those specs get written from. Every
-section below that sketches a mechanism is marked provisional and
-yields to what the build teaches.
+**Kind:** direction
+**Design state:** proposed
+**Delivery:** mixed
+**Arrived:** 2026-08-04
+
+This direction record names the vocabulary and sequencing for warren's
+extension ecosystem. It deliberately does **not** lock a manifest, loader,
+or general delivery mechanism. The flagship audit-log build (plan
+**pl-116e**) produced the friction report those contracts grow from. Every
+section below that sketches a mechanism is provisional and yields to what
+the build teaches.
 **Grounds:** [`PHILOSOPHY.md`](../PHILOSOPHY.md) "Extension tiers" +
 rules 2, 5, and 6;
 [`tier1-observation-bus.md`](tier1-observation-bus.md) (the live
 `warren-ext/v1` bus); ROADMAP "Deliberately not in core" (the extension
 catalog-in-waiting).
+
+## Scope status
+
+| Scope | Delivery | Evidence |
+|---|---|---|
+| Observe-only lifecycle bus | `shipped` | v0.13.0 |
+| Audit-log observer extension | `shipped` | pl-116e, v0.14.1 |
+| Provider extensions through RemoteTracker | `shipped` | v0.18.0 core bridge; implementations release separately |
+| Public catalog and general delivery mechanism | `unscheduled` | Must follow real extension friction |
+| Tier-2 mutating hooks | `deferred` | No consumer currently pays for them |
 
 ---
 
