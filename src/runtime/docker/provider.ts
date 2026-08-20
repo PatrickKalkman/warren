@@ -25,6 +25,7 @@
  */
 
 import type { ReapExec, ReapFs } from "../../runs/reap/types.ts";
+import { defaultExec } from "../../runs/reap/util.ts";
 import type { EnvLike } from "../../runs/spawn/callback-env.ts";
 import type {
 	FinalizeIntent,
@@ -91,6 +92,20 @@ export const DOCKER_PROVIDER_CAPABILITIES: RuntimeCapabilities = Object.freeze({
 	workspaceGc: true,
 });
 
+/**
+ * Docker agents intentionally run under a different uid from the root
+ * control-plane process. Git's ownership check would reject the resulting
+ * workspace during host-side finalize, so trust only that exact workspace for
+ * each reap subprocess. `-c` is process-local: no global config mutation and
+ * no ownership churn across the agent/control-plane boundary (warren-15f0).
+ */
+export function dockerReapExec(exec: ReapExec): ReapExec {
+	return {
+		run: (cmd, args, opts) =>
+			exec.run(cmd, cmd === "git" ? ["-c", `safe.directory=${opts.cwd}`, ...args] : args, opts),
+	};
+}
+
 export class DockerProvider implements RuntimeProvider {
 	readonly capabilities: RuntimeCapabilities = DOCKER_PROVIDER_CAPABILITIES;
 	readonly kind = "docker" as const;
@@ -103,7 +118,7 @@ export class DockerProvider implements RuntimeProvider {
 			serverEnv,
 			...(deps.store !== undefined ? { store: deps.store } : {}),
 			...(deps.fs !== undefined ? { fs: deps.fs } : {}),
-			...(deps.exec !== undefined ? { exec: deps.exec } : {}),
+			exec: dockerReapExec(deps.exec ?? defaultExec),
 			...(deps.sidecars !== undefined ? { sidecars: deps.sidecars } : {}),
 			drive: {
 				spawn: makeDockerSpawn({ env: serverEnv, ...(deps.docker ?? {}) }),

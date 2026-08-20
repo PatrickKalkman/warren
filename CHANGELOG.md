@@ -10,6 +10,78 @@ Releases **0.9.10 and earlier** live in
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-08-20
+
+The any-setup release. Warren's issue queue is now a real provider seam:
+Seeds remains built in, while external trackers connect through the
+`RemoteTracker` bridge and the experimental `warren-tracker/v1` protocol.
+The same release makes mirrored and third-party repositories practical with
+base-commit pinning, serialized host-clone refreshes, per-project onboarding
+context, and configurable multi-stack agent images. Runtime and judge
+hardening close the loop around that wider deployment surface.
+
+### Added
+
+- **The IssueTracker cut** (plan pl-a37b, #1003–#1016) — a capability-flagged
+  core contract, `SeedsTracker` implementation, `RemoteTracker` HTTP bridge,
+  ordered issue-list plan-runs for trackers without plans, and a published
+  conformance suite with a FakeTracker reference server. The protocol and
+  deployment model are documented in `docs/design/issue-tracker.md`.
+- **Dispatch-context analytics** (#987, #990, #993, #996, #998) — an
+  insert-only SQLite/Postgres fact table records why each run was dispatched,
+  which override won, and the runtime kind; `GET /analytics/dispatch` exposes
+  the windowed report.
+- **External-repository onboarding** (#1004, #1005, #1007, #1012) — project
+  `repoContext`, per-project agent-image overrides, a Python/uv-capable default
+  image, detached-HEAD-safe `baseCommit` dispatch, and serialized clone
+  materialization.
+- Per-run restricted-network loopback proxying (#999), a K8s run-pod
+  `NetworkPolicy` (#1000), and a pre-push guard against corrupt Seeds JSONL
+  (#1001).
+- The judge extension now ships as a real GKE workload and release image, with
+  append-only verdict detail and deployment manifests (#968, #972, #989).
+- Reusable agent skills for release preparation, contributor issue filing,
+  and the warren dogfood pipeline.
+
+### Changed
+
+- Builtin prompts are tracker-neutral and gate Seeds/Mulch instructions on
+  project capabilities (#1008–#1011).
+- Agent containers run non-root (#995); K8s now uses separate entrypoint and
+  agent UIDs so agent code cannot forge the warren-owned event descriptor
+  (#1027).
+- Runtime ids are typed from the canonical union and protected by the new
+  `check:runtime-ids` guard (#964).
+- The README now leads with the control-plane quickstart, forge seam, and
+  extension model; macOS setup no longer mounts a host Docker CLI that breaks
+  dispatch (#966).
+- Acceptance stub-agent scenarios use PATH shims instead of the retired shared
+  shell fixture (#1025), and agent-image pins move to pi-coding-agent 0.84.2
+  (#1024).
+
+### Fixed
+
+- Repair and reap accounting now distinguishes deliberate no-change runs from
+  dropped commits, ignores harness-owned dirty files, and measures commits
+  ahead from the pre-push origin tip (#992, #1019, #1022).
+- Provider retry classification uses structured status/body evidence and keeps
+  retry lineage; spawn-exec failures receive an honest terminal reason
+  (#983, #985, #986).
+- `warren run` waits for the real terminal event instead of exiting on a
+  transient `state="running"` message, and credential diagnostics identify the
+  winning token source (#981, #988).
+- DockerProvider delivers the configured provider credential to the pi builtin
+  (#1018), while K8s finalization accepts empty merged deltas and local cancel
+  settles promptly (#984, #1002).
+- Judge calibration defers work when daily or per-judgment budgets are
+  exhausted, binds verdicts to ground truth, and mirrors the full canonical
+  failure-reason vocabulary (#969–#971, #1021).
+- Tool-shape analytics recognizes pi's nested `arguments` wrapper and can
+  repair existing rollups (#967).
+- DockerProvider finalization scopes Git's safe-directory override to the
+  exact run workspace, preserving non-root agent isolation without mutating
+  global Git config (warren-15f0).
+
 ## [0.17.0] — 2026-08-17
 
 The absorption release. The **pl-3007 campaign** internalized the

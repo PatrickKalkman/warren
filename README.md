@@ -125,11 +125,11 @@ Run it for yourself on a home server today. The [org-readiness roadmap](ROADMAP.
 
 ## Status
 
-Stable (`0.17.0`), running on GKE in continuous use against real GitHub repos. The Kubernetes runtime (`WARREN_RUNTIME=k8s`, pod-per-run) is the supported hosted target on GKE Autopilot.
+Stable (`0.18.0`), running on GKE in continuous use against real GitHub repos. The Kubernetes runtime (`WARREN_RUNTIME=k8s`, pod-per-run) is the supported hosted target on GKE Autopilot.
 
 Scenario-based acceptance tests in [`scripts/acceptance/`](scripts/acceptance/) cover the end-to-end path. They span manual runs, cron triggers, K8s pod dispatch, Postgres, previews, restart recovery, cost analytics, the seeds-extensions roundtrip, and serial plan-run dispatch.
 
-The 0.17.0 absorption release internalized the sandbox substrate (plan pl-3007) and added a `DockerProvider` (`WARREN_RUNTIME=docker`) that runs each agent as a sibling container. The active frontier is the issue-tracker contract cut. See [ROADMAP.md](ROADMAP.md).
+The 0.18.0 any-setup release made the issue queue a provider seam, added the `RemoteTracker` bridge, and hardened dispatch for mirrored and third-party repositories. The active frontier is the first external tracker extension and the mirror-fleet corpus flywheel. See [ROADMAP.md](ROADMAP.md).
 
 ## What you get
 

@@ -37,8 +37,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,6 +57,7 @@ import {
 	dockerOrThrow,
 	extractMintedToken,
 	mintLineCount,
+	runDocker,
 } from "../lib/self-host-docker.ts";
 import { waitForRunTerminal } from "./lib/poll-helpers.ts";
 
@@ -143,13 +144,48 @@ export const scenario: Scenario = {
 		const dockerBin = Bun.which("docker");
 		if (dockerBin === null) skipScenario("docker CLI not on PATH");
 
-		const root = await mkdtemp(join(tmpdir(), "warren-acceptance-42-"));
+		// Keep bind sources under the home directory, which Docker Desktop and
+		// Colima share with their Linux VM by default. macOS tmpdir() lives under
+		// /var/folders; a remote daemon can accept that source path yet mount an
+		// empty VM-local directory, so persisted state never reaches the host
+		// directory the assertions read (warren-15f0).
+		const root = await mkdtemp(join(homedir(), ".warren-acceptance-42-"));
+		// mkdtemp creates 0700, but the sibling agent container intentionally
+		// runs as uid 1000 and must traverse this host path to its workspace.
+		await chmod(root, 0o755);
 		const dataDir = join(root, "data");
 		let booted = false;
 		try {
 			const fixtures = await buildOwnFixtures(root);
 			await mkdir(dataDir, { recursive: true });
 			await buildImages(root);
+
+			// The control-plane image is Linux. A host macOS docker binary cannot
+			// execute there, so copy the CLI out of Docker's Linux VM. Linux hosts
+			// can use their native CLI directly. Mount the executable from the
+			// shared data root so both Docker Desktop and Colima can see it.
+			const dockerExecutable = join(dataDir, "docker");
+			if (process.platform === "linux") {
+				await writeFile(dockerExecutable, await readFile(await realpath(dockerBin)), {
+					mode: 0o755,
+				});
+			} else {
+				const copied = await runDocker([
+					"run",
+					"--rm",
+					"-v",
+					`${dataDir}:/acceptance-data`,
+					"docker:cli",
+					"sh",
+					"-c",
+					"cp /usr/local/bin/docker /acceptance-data/docker && chmod 755 /acceptance-data/docker",
+				]);
+				if (copied.exitCode !== 0) {
+					throw new AcceptanceError(
+						`could not stage the Linux docker CLI: ${copied.stderr.trim()}`,
+					);
+				}
+			}
 
 			// === THE ONE-LINER (steps 1–3 of the claim) ===
 			// No --security-opt, no --cap-add, no WARREN_API_TOKEN. Only two
@@ -175,7 +211,7 @@ export const scenario: Scenario = {
 				"-v",
 				"/var/run/docker.sock:/var/run/docker.sock",
 				"-v",
-				`${dockerBin}:/usr/bin/docker:ro`,
+				`${dockerExecutable}:/usr/bin/docker:ro`,
 				"-v",
 				`${fixtures.projectPath}:${fixtures.projectPath}`,
 				"-v",
@@ -246,11 +282,13 @@ export const scenario: Scenario = {
 				body: { agent: "claude-code", project: project.id, prompt: COMMIT_PROMPT },
 			});
 			const terminal = await waitForRunTerminal(http, dispatched.run.id, RUN_DEADLINE_MS);
-			assertEqual(
-				terminal.state,
-				"succeeded",
-				`run reaches terminal 'succeeded' (got '${terminal.state}', failureReason=${terminal.failureReason ?? "<null>"})`,
-			);
+			if (terminal.state !== "succeeded") {
+				const events = await http.request("GET", `/runs/${dispatched.run.id}/events`);
+				const diagnostics = await events.text();
+				throw new AcceptanceError(
+					`run reaches terminal 'succeeded' (got '${terminal.state}', failureReason=${terminal.failureReason ?? "<null>"})\n--- run events ---\n${diagnostics.slice(-4000)}`,
+				);
+			}
 			assertEqual(terminal.failureReason, null, "run carries no failureReason");
 
 			const branchSha = execFileSync(

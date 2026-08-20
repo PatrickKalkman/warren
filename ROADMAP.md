@@ -35,7 +35,8 @@ The brake on all three is PHILOSOPHY rule 1: features pay for seams. Work with n
 
 ## Now — in flight
 
-- **The v0.18.0 campaign (pl-a37b, seed warren-bc61) — the any-setup release.** Planned 2026-08-18, three fronts, all merged. The dispatch-context log: corpus-flywheel step 2 as a core insert-only `dispatch_context` fact table. The full `IssueTracker` cut: contract, seeds as implementation #1, the `RemoteTracker` bridge, and the conformance suite (see the Shipped row). The external-repo readiness set from the 2026-08-18 mirror-fleet audit: base-commit pinning, host-clone serialization, multi-stack agent image, tracker-neutral builtin prompts, `repoContext` onboarding. The open reliability backlog rides the same plan. After this release, focus turns to the mirror fleet and corpus-flywheel steps 3–5.
+No campaign is currently in flight. The mirror fleet and corpus-flywheel
+steps 3–5 are the active discovery frontier after the any-setup release.
 
 ## Next — planned, in order
 
@@ -83,7 +84,7 @@ Honest replacements for old sequencing steps with no payer. Each entry names its
 | The judge extension — 15-class rubric v1, append-only verdict store, bounded judge loop, collector daemon, `GET /verdicts.jsonl` export | v0.16.0 | pl-17ca, `docs/design/agent-analytics.md` §12 |
 | The burrow absorption — sandbox, harness adapters, spawn path, and preview sidecars internalized; `src/burrow-client/` deleted; supervisor spawns only warren | v0.17.0 | pl-3007, `docs/design/runtime-and-supervisor.md` |
 | The self-host push — first-boot operator-token minting, `DockerProvider` sibling containers, one-line docker bring-up pinned by `acceptance:container` | v0.17.0 | warren-ef6e, `docs/design/runtime-docker-provider.md` |
-| The IssueTracker cut — neutral contract + capability flags, `SeedsTracker` behind the seam, `isGitNative` fence, ordered-issue-list plan-runs, `RemoteTracker` bridge speaking `warren-tracker/v1`, published conformance suite + FakeTracker | v0.18.0 | pl-a37b, `docs/design/issue-tracker.md` |
+| The any-setup campaign — IssueTracker cut, dispatch-context analytics, external-repo onboarding, and runtime hardening | v0.18.0 | pl-a37b, `docs/design/issue-tracker.md` |
 
 ## Deliberately not in core
 
