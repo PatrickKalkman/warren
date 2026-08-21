@@ -30,15 +30,15 @@ import math
 from PIL import Image, ImageDraw, ImageFont
 
 # --- Palette: match the warren UI (src/ui/src/index.css dark mode) ---
-# Pure grayscale with a faint cool tint (hue 264). RGB approximations of the
-# oklch values used by the UI theme.
+# Cool neutrals plus Warren's single muted-green brand accent. The center uses
+# the dark-theme primary from warren-site: oklch(72% 0.11 152).
 BG = (24, 25, 28)              # --color-bg            oklch(14% 0.005 264)
 FG = (242, 244, 248)           # --color-fg            oklch(96% 0.005 264)
-PRIMARY = (208, 212, 220)      # --color-primary       oklch(85% 0.02 264)
+PRIMARY = (108, 184, 130)      # --color-primary       oklch(72% 0.11 152)
 MUTED_FG = (160, 162, 168)     # --color-muted-fg      oklch(67% 0.01 264)
 BORDER = (62, 64, 70)          # --color-border        oklch(28% 0.01 264)
 
-# Mark-specific roles (all grayscale):
+# Mark-specific roles:
 EDGE = BORDER                  # outer-to-outer tunnel edges (dim)
 NODE_INACTIVE = MUTED_FG       # idle outer nodes + their spokes
 NODE_ACTIVE = FG               # active run: bright
@@ -58,16 +58,16 @@ DARK = {
     "text_dim": TEXT_DIM,
 }
 
-# Background-agnostic palette for the `-alpha` outputs. Every value sits in
-# the middle of the ramp so the mark reads on white and on near-black; the
-# same reasoning (and roughly the same grays) as the
-# `prefers-color-scheme` fallback in src/ui/public/favicon.svg.
+# Background-agnostic palette for the `-alpha` outputs. Neutral values sit in
+# the middle of the ramp so the mark reads on white and on near-black. The
+# green center uses the midpoint between warren-site's light and dark primary
+# tokens so it remains visible on either surface.
 DUOTONE = {
     "bg": (0, 0, 0, 0),
     "edge": (139, 141, 148),
     "node_inactive": (122, 124, 131),
     "node_active": (90, 92, 99),
-    "center": (74, 76, 82),
+    "center": (90, 162, 111),
     "text": (90, 92, 99),
     "text_dim": (122, 124, 131),
 }
