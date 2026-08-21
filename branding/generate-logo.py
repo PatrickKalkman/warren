@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the warren logo: a burrow-network mark + wordmark.
+"""Generate the warren logo: an agent-workload network + wordmark.
 
-Concept: warren = a network of interconnected burrows. The mark is a
-hexagonal cluster of nodes (ephemeral agent runs) connected by tunnel
-edges, with a larger central control-plane node. One outer node and its
-spoke render in amber (the ecosystem accent) to suggest an active run.
+Concept: Warren turns coding agents into infrastructure. The mark is a
+hexagonal cluster of isolated agent workloads connected to a larger
+infrastructure kernel. One bright outer node and spoke suggest an active run.
 
 Outputs:
   branding/logo.png             horizontal mark + wordmark (~640x220)
@@ -42,8 +41,8 @@ BORDER = (62, 64, 70)          # --color-border        oklch(28% 0.01 264)
 # Mark-specific roles (all grayscale):
 EDGE = BORDER                  # outer-to-outer tunnel edges (dim)
 NODE_INACTIVE = MUTED_FG       # idle outer nodes + their spokes
-NODE_ACTIVE = FG               # active run: bright (no longer amber)
-CENTER = PRIMARY               # control plane node
+NODE_ACTIVE = FG               # active run: bright
+CENTER = PRIMARY               # infrastructure kernel
 TEXT_PRIMARY = FG
 TEXT_DIM = MUTED_FG
 
@@ -89,13 +88,13 @@ LINE_WIDTH = 2
 
 TEXT_X = 230
 NAME = "warren"
-TAGLINE = "self-hostable cloud control plane"
+TAGLINE = "coding agents into infrastructure"
 NAME_SIZE = 56
-TAG_SIZE = 18
+TAG_SIZE = 16
 NAME_Y = 76
 TAG_Y = 142
 
-ACTIVE_OUTER = 1               # index of the amber node (0=top, going clockwise)
+ACTIVE_OUTER = 1               # index of the bright node (0=top, going clockwise)
 
 
 def load_font(path: str, size: int):
@@ -115,7 +114,7 @@ def hex_positions(cx: float, cy: float, r: float):
 
 
 def draw_mark(draw: ImageDraw.ImageDraw, cx: float, cy: float, s: int, palette=DARK):
-    """Draw the burrow-network mark centered at (cx, cy). s = SCALE."""
+    """Draw the workload-network mark centered at (cx, cy). s = SCALE."""
     outer = hex_positions(cx, cy, HEX_RADIUS)
     lw = LINE_WIDTH * s
 
@@ -147,7 +146,7 @@ def draw_mark(draw: ImageDraw.ImageDraw, cx: float, cy: float, s: int, palette=D
             fill=color,
         )
 
-    # 4. center node (control plane) — solid rounded square in primary gray
+    # 4. infrastructure kernel — solid rounded square in primary gray
     ch = CENTER_HALF * s
     cr = CENTER_RADIUS * s
     draw.rounded_rectangle(
