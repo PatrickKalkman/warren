@@ -1,7 +1,7 @@
 {
 	"name": "@os-eco/warren-cli",
 	"version": "0.18.0",
-	"description": "Self-hostable control plane for ephemeral cloud agents — spawn sandboxed agents at your GitHub repos, watch them work live, steer them, get a branch back",
+	"description": "Self-hosted infrastructure for coding-agent workloads: isolated runs, live control, spend limits, recovery, and Git delivery",
 	"type": "module",
 	"bin": {
 		"warren": "./src/cli/main.ts",

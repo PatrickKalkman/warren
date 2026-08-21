@@ -5,7 +5,7 @@ This runbook is the durable operations document.
 It covers deploy, secrets, RBAC, garbage collection, admission control, observability, and incident response.
 
 **Scope.** This runbook covers the `WARREN_RUNTIME=k8s` topology only.
-For the default self-host topology (one container, burrow-backed `LocalProvider`), see the [README](../README.md) quickstart.
+For the default self-host topology, which runs warren's `LocalProvider` in one container, see the [quickstart](quickstart.md).
 That path needs none of this document.
 
 **Cross-references** (read these documents, do not duplicate them here):
@@ -18,17 +18,17 @@ That path needs none of this document.
 ## 0. The runtime-provider model
 
 Warren selects its run backend once at boot from `WARREN_RUNTIME` (`src/runtime/registry.ts`).
-Unset or `local` selects the burrow-backed `LocalProvider`, the self-host default.
-The value `k8s` selects the `K8sProvider`.
-Both implement the same eight-method `RuntimeProvider` contract (`src/runtime/contract.ts`), so the domain (`src/runs/*`) is identical across topologies.
-Only workspace materialization, event streaming, steering transport, and finalize differ.
+Unset or `local` selects the warren-owned `LocalProvider`, the self-host default.
+The values `docker` and `k8s` select the sibling-container and pod providers.
+All providers implement the same `RuntimeProvider` contract (`src/runtime/contract.ts`), so the domain (`src/runs/*`) is identical across topologies.
+Only workspace materialization, event streaming, steering transport, and finalization differ.
 
-Under `k8s` **there is no burrow**: no `burrow serve` sibling, no unix socket, no bwrap.
+Under `k8s`, there is no `bwrap` sandbox or local supervisor child for the run.
 Each run is a bare pod (`restartPolicy: Never`) in the `warren-runs` namespace, and the pod boundary is the sandbox.
-A bad `WARREN_RUNTIME` value fails loud at boot (`UnknownRuntimeError`) — it never falls back silently.
+A bad `WARREN_RUNTIME` value fails loud at boot (`UnknownRuntimeError`) and never falls back silently.
 
-Key consequence for operators: everything burrow-shaped in the self-host docs is **dead weight under `k8s`** and must stay unset (§2.4).
-That list covers the four bwrap security flags, `BURROW_API_TOKEN` / `WARREN_BURROW_TOKEN`, `BURROW_DATA_DIR`, and the supervisor.
+The four `bwrap` security flags belong only to the local container topology and must stay absent from the Kubernetes deployment.
+Retired burrow token, socket, and data-directory variables also stay unset.
 
 ---
 
@@ -344,14 +344,14 @@ Two namespaces hold secrets — the run namespace deliberately gets a smaller cr
 
 | Secret / key | Namespace | Consumed as | Purpose |
 |---|---|---|---|
-| `warren-secrets/warren-api-token` | `warren` | `WARREN_API_TOKEN` | bearer auth on every route except `/healthz`; also the in-pod callback token and the preview-cookie HMAC seed |
+| `warren-secrets/warren-api-token` | `warren` | `WARREN_API_TOKEN` | persisted operator bearer and signing seed for derived run callback tokens and preview cookies |
 | `warren-secrets/warren-db-url` | `warren` | `WARREN_DB_URL` | Postgres DSN (omit → SQLite on `warren-data`) |
 | `warren-secrets/github-token` | `warren` | `GITHUB_TOKEN` | control-plane git push / private clone |
 | `warren-secrets/anthropic-api-key` | `warren` | `ANTHROPIC_API_KEY` | injected into agent pod env at dispatch |
 | `warren-secrets/sentry-dsn` | `warren` | `SENTRY_DSN` | error reporting (optional) |
 | `warren-secrets/warren-auth` | `warren` | `WARREN_AUTH` | auth posture: `token` (default) or `public`; **not a secret** — it lives here so the flip and the revert stay a Secret edit plus a rollout restart |
 | `warren-secrets/warren-public-allowlist` | `warren` | `WARREN_PUBLIC_ALLOWLIST` | comma-separated owners (`my-org`) and/or repos (`some-owner/some-repo`) a public instance may hold; read **only** under `WARREN_AUTH=public`, where an empty value refuses the boot |
-| `warren-git-token/token` | `warren-runs` | `WARREN_GIT_TOKEN` (init pod) | init-container clone/push; **optional** — public repos clone without it, private repos **fail silently** if it is missing |
+| `warren-git-token/token` | `warren-runs` | `WARREN_GIT_TOKEN` (init pod) | optional init clone/push token. A private-repo run reaches `Init:Error` without it. |
 | `warren-anthropic-key/api-key` | `warren-runs` | agent pod `secretKeyRef` | OPTIONAL agent key source (`WARREN_K8S_ANTHROPIC_SECRET_NAME`/`_KEY`); a run whose key rides the dispatch env still schedules when this Secret is absent |
 
 `base/secrets.yaml` ships **placeholder templates** so that `kustomize build` resolves — never `kubectl apply` it as-is.
@@ -360,15 +360,17 @@ The exact `kubectl create secret generic` commands are in [`deploy/k8s/README.md
 
 ### 2.2 The `warren-runs` isolation boundary
 
-Run pods receive only the credentials a compromised pod is permitted to hold: the Anthropic key (agent), `WARREN_API_TOKEN` (callback), and `WARREN_GIT_TOKEN` (init clone/push).
-They do **not** get the DB URL, and they cannot read Secrets from the K8s API — the RBAC Role grants no `secrets` verb (§4).
-Secrets reach pods as env values that the control plane stamps into the pod spec, not as API reads by the pod.
+Run pods receive the agent key, an init Git token, and a derived callback bearer. The callback bearer uses the `WARREN_API_TOKEN` env name inside the pod.
+
+That callback bearer is not the persisted operator token. It is bound to one live run and reaches that run's inbox, finalize, and salvage routes. This scope does not yet admit App-mode K8s credential remint. `warren-5a5c` tracks that gap.
+
+Run pods do **not** get the DB URL. They cannot read Secrets from the K8s API because the RBAC Role grants no `secrets` verb (§4). The control plane stamps permitted credentials into the pod spec as env values.
 
 ### 2.3 Rotation
 
-There is one bearer token, and it is not scoped or versioned (see [SECURITY.md](../SECURITY.md)).
+There is one persisted operator bearer token. Warren derives narrower per-run callback tokens from it (see [SECURITY.md](../SECURITY.md)).
 
-- **`WARREN_API_TOKEN`.** A rotation invalidates in-flight callback auth and every preview cookie (the HMAC key derives from it). Rotate during a quiet window: update `warren-secrets`, then `kubectl -n warren rollout restart deploy/warren`. In-flight run pods hold the old token in their env, so their finalize callback will fail. Drain first (§7.6), or accept that active runs reap degraded.
+- **`WARREN_API_TOKEN`.** Rotating the operator secret invalidates derived callback tokens for in-flight runs and every preview cookie. Rotate during a quiet window: update `warren-secrets`, then `kubectl -n warren rollout restart deploy/warren`. In-flight run pods hold callback tokens signed with the old secret, so their finalize callback will fail. Drain first (§7.6), or accept that active runs reap degraded.
 - **`GITHUB_TOKEN` / `WARREN_GIT_TOKEN`.** Update both copies — the control-plane `warren-secrets/github-token` and the run-namespace `warren-git-token/token` are the same PAT by convention. Rollout-restart the control plane. New run pods pick the new value up at the next dispatch. Old pods keep the token in their spec until they exit.
 - **`ANTHROPIC_API_KEY`.** Update `warren-secrets` (the control-plane env source) and the optional `warren-anthropic-key` if you use the `secretKeyRef` path. Rollout-restart.
 
@@ -755,9 +757,9 @@ The file stays out of the kustomize base because it needs the `monitoring.coreos
 ### 6.2 `/readyz` per topology
 
 `GET /readyz` (`src/server/handlers/diagnostics.ts`) runs deeper checks than the liveness `/healthz`.
-It is **topology-aware**: the burrow socket, bwrap, and stale-burrow-workspace probes only run when `resolveRuntimeKind() === "local"`, and return `[]` under k8s (warren-c128).
-Without that gate they would forever report "burrow unreachable" and wrongly degrade a healthy K8s control plane.
-Under k8s, `/readyz` covers: DB reachable, agents registered, the warren-config parse, and the preview-allocator and auth checks.
+It is **topology-aware**: local sandbox and stale-workspace probes only run when `resolveRuntimeKind() === "local"`, and return `[]` under k8s (warren-c128).
+Without that gate, local-only checks would wrongly degrade a healthy Kubernetes control plane.
+Under k8s, `/readyz` covers the database, registered agents, warren-config parsing, pod-watcher sync, preview allocation, and auth checks.
 
 The Deployment probes point at the **auth-exempt `/healthz`**.
 `/readyz` needs the bearer, so gate readiness on it only via a probe with `httpHeaders: [{name: Authorization, value: "Bearer …"}]`.
@@ -965,7 +967,7 @@ Warren loses in-flight runs — it does not resume them.
 ### 7.8 Run stuck `running` after its pod completed (reap hang, warren-c433)
 
 **Symptom.** A run row stays `state=running` with `endedAt=null` long after `kubectl -n warren-runs get pods` shows the pod as `Succeeded`/`Failed`.
-The last log line is the run-state poller's `observed burrow terminal; draining stream before abort`.
+The last log line is the run-state poller's terminal-observation message before stream teardown.
 
 **Root cause (fixed).** The pod-log follow never hit EOF after the pod exited.
 The post-terminal stream teardown parked on `iterator.return()` forever.

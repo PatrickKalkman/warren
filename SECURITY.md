@@ -16,7 +16,7 @@ Please report vulnerabilities privately through [GitHub Security Advisories](htt
 
 1. Go to the [Security Advisories page](https://github.com/jayminwest/warren/security/advisories)
 2. Click **"New draft security advisory"**
-3. Fill in a description of the vulnerability, including steps to reproduce if possible
+3. Describe the vulnerability and include steps to reproduce it when possible
 
 ### Response Timeline
 
@@ -26,25 +26,52 @@ Please report vulnerabilities privately through [GitHub Security Advisories](htt
 
 We will keep you informed of progress throughout the process.
 
-## Scope
+## Current security posture
 
-### V1 security posture (known limitations)
+Warren serves one operator or trusted team per deployment. The deployment, not an individual user account, is the trust boundary.
 
-Documented, accepted for V1:
+- **Shared operator token.** `WARREN_AUTH=token`, the default, protects operator routes with one bearer token. The token has no expiry, scopes, or independent revocation. Rotate it by changing the deployment secret and restarting warren. Loss of the token grants operator access.
+- **Optional public-read mode.** `WARREN_AUTH=public` admits unauthenticated spectators to an allowlisted, redacted projection. Mutations and operator-only fields still require the bearer token. A malformed supplied token returns 401 rather than falling back to spectator access. Only use this mode when every registered repository and exposed prompt is safe to publish.
+- **No named users or per-user RBAC.** Warren does not attribute operator actions to distinct people. A team that shares an instance also shares its deployment trust boundary. Put an identity-aware proxy in front when the deployment needs external access control.
+- **TLS stays at the edge.** Warren serves HTTP. A reverse proxy or cluster ingress must provide TLS before exposing it outside a trusted network. `warren doctor` warns about unsafe non-loopback deployments.
+- **Secrets follow the deployment boundary.** A single-box install commonly reads secrets from `.env`. Protect that file with host permissions. Kubernetes deployments should use cluster or cloud secret management. Run pods and containers do not receive the database credential.
+- **Run sandboxes do not receive the operator token.** Warren mints a run-scoped callback token for each live run. It reaches only that run's inbox, finalize, and salvage routes today, and the server rejects it after the run becomes terminal. The missing App-mode K8s credential-remint callback permission is tracked by `warren-5a5c`.
 
-- **Single bearer token.** No rotation, no expiry, no revocation. Loss of `WARREN_API_TOKEN` = full access. Mitigation: rotate by editing `.env` / the cluster secret and bouncing the container.
-- **Plaintext secrets in `.env`.** Standard for self-host. The operator owns filesystem perms (`chmod 600 .env`). On a cluster, a managed secret store (Kubernetes Secrets / cloud secret manager) encrypts at rest.
-- **No HTTPS termination in warren.** TLS is the reverse proxy's job. Direct HTTP on a non-loopback address is a misconfiguration, and `warren doctor` warns.
-- **Trust-the-socket between warren and burrow.** Burrow's unix socket has no auth. The in-container threat model is "warren is the only client." A third party with code execution inside the warren process has full burrow access. Warren and burrow share the container by design.
-- **No CSRF protection on the UI.** UI calls warren's API with the bearer token. Not exposed to third-party origins (CORS strict). Single-user posture.
-- **Path-mode previews run on their own origin — publish the preview port.** `WARREN_PREVIEW_MODE=path` is the default. Warren serves each preview app from a dedicated listener on `WARREN_PREVIEW_PORT` (warren-3f8a, default: bind port + 1). Each preview gets its own browser origin. The operator bearer token lives in `localStorage` on the warren UI origin. Same-origin policy blocks agent-authored preview code from that storage. The warren origin answers `/p/<run-id>/` with a 308 to the preview origin. The proxy still strips `Authorization` and `Cookie` before it forwards a request upstream. Publish the preview port next to the API port. docker-compose maps both. A reverse proxy needs a second forwarded port on the same hostname. The unix-socket transport has no TCP port to bind. It keeps the old same-origin mounting and warns at boot. On that topology, set `WARREN_PREVIEW_MODE=subdomain` for previews that run untrusted code.
+## Runtime isolation
 
-### V1 non-goals (security-relevant)
+Warren owns its sandbox and runtime implementations. It has no Burrow daemon, socket, or package dependency.
 
-- No multi-tenant auth, no per-user RBAC in V1. Single bearer token, one user. Multi-user identity via OIDC is on the post-V1 roadmap (R-09).
-- No audit log in V1. Warren plans an append-only dispatch/steer/cancel/secret-read ledger post-V1 (R-16). It lands alongside R-09 since it depends on real user identity.
-- GitHub credentials run through the forge seam (`WARREN_FORGE`). Static mode uses a shared PAT from `GITHUB_TOKEN`. App mode uses a GitHub App with installation-scoped tokens, minted per spawn. No configuration object holds a token. Per-repo allowlists beyond the App installation scoping remain post-V1 (R-18).
+- **`local`.** Warren creates a fresh worktree and runs the harness under `bwrap` on Linux or `sandbox-exec` on macOS. The Linux container topology requires the security settings in `docker-compose.yml` so nested user namespaces can start.
+- **`docker`.** Each run uses a sibling container. The warren service mounts the Docker socket, which grants control of the Docker daemon. Treat the control-plane container as trusted operator infrastructure and never expose that socket to an agent container.
+- **`k8s`.** Each run uses a pod as its isolation boundary. Kubernetes RBAC separates control-plane access from run-pod permissions. Resource and admission limits reduce the effect of runaway workloads, but operators still own cluster policy and secret configuration.
 
-These are limitations for V1, not bugs. V2 candidates: token-pair (read/write), per-token scopes, audit log.
+Isolation limits damage from an agent process. It does not make untrusted repository code safe to run with unrestricted credentials or network access. Review the selected runtime capabilities and project-specific agent image before dispatching against untrusted code.
 
-If you find a vulnerability outside this list, report it through the process above and we'll triage it.
+## Forge credentials
+
+GitHub access sits behind the `Forge` seam.
+
+- `WARREN_FORGE=github` uses a static PAT from `GITHUB_TOKEN`.
+- `WARREN_FORGE=app` uses a GitHub App and mints short-lived installation tokens for forge and Git operations.
+
+The control plane supplies Git credentials for clone, fetch, push, and pull-request operations. Configure the narrowest repository access that the deployment needs. Agent commit attribution is separate: set `WARREN_GIT_AUTHOR_NAME` and `WARREN_GIT_AUTHOR_EMAIL` to a dedicated machine-account identity.
+
+## Browser and preview boundaries
+
+The UI stores the operator bearer in the warren origin and does not provide separate CSRF protection. Strict CORS and the single-deployment-token model are part of this posture. Do not serve untrusted content on the UI origin.
+
+Preview environments run repository code and therefore use a separate browser origin on supported TCP deployments.
+
+- **Path mode is the default.** Warren serves previews from a dedicated listener on `WARREN_PREVIEW_PORT`, normally the API port plus one. The main UI origin redirects `/p/<run-id>/` to that listener. Publish and proxy the second port.
+- **Subdomain mode is opt-in.** `WARREN_PREVIEW_MODE=subdomain` requires `WARREN_PREVIEW_HOST`, wildcard DNS, and a wildcard TLS certificate.
+- **Unix-socket exception.** A unix-only deployment cannot create the dedicated TCP listener and retains legacy same-origin path behavior. Warren warns at boot. Use subdomain mode when previews can run untrusted code.
+
+The preview proxy strips `Authorization` and `Cookie` before forwarding a request to the preview application. Signed preview cookies authorize browser access to a specific run and mode.
+
+## Run records and optional extensions
+
+Core warren persists run state and structured events. Those records can contain prompts, tool inputs, file paths, costs, and repository metadata. Restrict database, backup, log, and API access accordingly. Public-read mode serves a narrower projection, not the operator record.
+
+The append-only audit log and automated judge are optional, out-of-process extensions. A base installation does not launch them. Each extension owns its storage, credential, retention, and deployment security. Installing the judge can send run material to its configured model provider.
+
+If you find a vulnerability outside this documented posture, report it through the process above and we will triage it.

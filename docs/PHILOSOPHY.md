@@ -1,28 +1,15 @@
 # Warren Project Philosophy
 
-**Warren ships minimal but extensible.** The aspiration, stated
-plainly: be the [pi.dev](https://pi.dev/) of software factories — a
-small, legible orchestration kernel where every noun is a provider
-behind a contract, and every feature is an extension the core does not
-know about.
+**Coding agents are tools. Warren turns them into infrastructure.** An
+agent invocation becomes a managed workload with an isolated workspace,
+a durable lifecycle, limits, events, intervention, recovery, and Git
+delivery. The operator owns the compute, credentials, and run history.
 
-This document holds policy only. It contains the rules that stay true
-for years. For direction, sequencing, and the status of each seam, read
-[ROADMAP.md](../ROADMAP.md). For the work queue, run `sd ready`. If a
-sentence here names the current state of the code, that sentence is a
-bug in this document.
-
-## What pi.dev proves
-
-Pi's reputation rests on disciplined subtraction plus total
-interceptability: a tiny core, hooks at every lifecycle boundary, and a
-features-as-extensions discipline. The maintainers left sub-agents,
-plan mode, and sandboxing out of core. Then they shipped each one as an
-extension to prove that the extension API could carry real weight.
-"Adapt Pi to your workflows, not the other way around."
-
-Warren's translation: the core is the run loop. The value proposition
-is the contracts.
+Warren ships that infrastructure as a minimal, extensible kernel. This
+document holds policy only: the rules that stay true for years. For
+direction, sequencing, and seam status, read [ROADMAP.md](../ROADMAP.md).
+For the work queue, run `sd ready`. A sentence here that names temporary
+code state is a bug in this document.
 
 ## The kernel
 
@@ -45,6 +32,20 @@ The litmus test for core membership:
 > extension.
 
 Removal of a feature must mean *not loading it*, never surgery.
+
+## The pi.dev discipline
+
+Pi proves that disciplined subtraction and interceptable lifecycle
+boundaries can produce a small core without producing a closed system.
+Its maintainers left sub-agents, plan mode, and sandboxing out of core,
+then shipped extensions to prove the extension API could carry them.
+"Adapt Pi to your workflows, not the other way around."
+
+Warren applies that architecture discipline to agent infrastructure.
+The aspiration is to be the [pi.dev](https://pi.dev/) of software
+factories: a legible orchestration kernel where swappable nouns sit
+behind contracts and run-lifecycle reactions stay outside core. The
+run loop is the product kernel; the contracts keep it adaptable.
 
 ## Seams
 
@@ -77,21 +78,23 @@ answer to "where does my custom integration code live":
   at all: CLI tools plus a README or AGENTS.md in the project's own
   repo, invoked by the agent inside the sandbox, paid for only when
   used. A team's AWS, S3, or deploy tooling lives here first.
-- **Tier 1 — container plugins.** Run-adjacent custom code is a
-  container with an env contract (the Woodpecker CI model). Warren
-  invokes the team's image at a lifecycle stage with `WARREN_RUN_ID`
-  and `PLUGIN_*` env vars. A custom harness is an agent image plus a
-  registry entry. Language-agnostic, versioned by image tag, survives
-  core churn.
-- **Tier 2 — operator hooks.** In-process TypeScript, loaded at boot
-  from deployment config, for the person who owns the deployment only.
-  Third-party code never runs inside the server process.
+- **Tier 1 — container plugins (intended mechanism).** Run-adjacent
+  custom code belongs in a container with an env contract (the
+  Woodpecker CI model). The target shape lets Warren invoke the team's
+  image at a lifecycle stage with `WARREN_RUN_ID` and `PLUGIN_*` env
+  vars. This general loader has not shipped. Current out-of-process
+  observers consume the published HTTP and event surfaces instead.
+- **Tier 2 — operator hooks (policy, not a shipped loader).** In-process
+  TypeScript loaded at boot from deployment config is reserved for the
+  person who owns the deployment. Third-party code never runs inside
+  the server process. Warren does not yet ship a general Tier 2 hook
+  loader.
 
-The hook contract is versioned from day one (`warren-ext/v1` in every
-payload, negotiated at handshake, Terraform-style). A breaking change
-deprecates into a compat shim before removal. A declared hook that
-never fires is a contract that lies. Emit it, or mark it reserved in
-the design document and in the code.
+When a general hook contract ships, it is versioned from day one
+(`warren-ext/v1` in every payload, negotiated at handshake,
+Terraform-style). A breaking change deprecates into a compat shim before
+removal. A declared hook that never fires is a contract that lies. Emit
+it, or mark it reserved in the design document and in the code.
 
 Every refusal to add a feature to core gets a public "deliberately not
 in core" entry in ROADMAP.md, with a recipe that names the tier that
@@ -142,19 +145,17 @@ carries it.
 
 Things warren does not build into core, each with its escape hatch:
 
-- **No bundled workflow opinions.** Plan orchestration and chat-shaped
-  features are extensions you can decline to load, not core you rip
-  out.
+- **No general workflow engine.** Plan-runs are a narrow dispatch mode
+  over an ordered work list with a merge gate. Broader campaigns,
+  chat-shaped workflows, and organization policy stay outside core.
 - **No forge monoculture.** The kernel's contract with the world is a
-  pushed branch. GitHub is implementation #1 behind the `Forge` seam,
-  never an assumption in domain code. Until the seam is cut, read this
-  entry as a standard the code must reach — ROADMAP.md tracks the gap.
+  pushed branch. GitHub is implementation #1 behind the live `Forge`
+  seam, never an assumption in domain code.
 - **No issue-tracker monoculture.** Seeds is implementation #1 behind
-  the `IssueTracker` seam, never a structural dependency. The same
-  reading applies until the seam is cut.
-- **No agent-runtime semantics in the sandbox layer.** Burrow runs a
-  command and streams output. What a claude-code or pi event *means* is
-  the job of warren's `AgentRuntimeAdapter`.
+  the live `IssueTracker` seam, never a structural dependency.
+- **No agent-runtime semantics in the sandbox layer.** Warren's sandbox
+  starts a command and transports its output. What a Claude Code or Pi
+  event means belongs to `AgentRuntimeAdapter`.
 - **No in-core integration sprawl.** Slack, Sentry, and Grafana arrive
   as extensions on the event bus, never as new `ServerDeps` fields.
 - **No multi-tenant SaaS.** One warren deploy serves one team. Seams
