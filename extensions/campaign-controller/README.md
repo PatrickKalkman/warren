@@ -38,6 +38,34 @@ issues depend on:
   `ValidationError` / `ConfigError` / `StateError` / `BoundaryError`
   hierarchy every later step throws through. Error messages never carry
   secrets by construction.
+- [`src/manifest.ts`](src/manifest.ts) — the runtime-validated V0 campaign
+  manifest schema (warren-5055): upstream/fork coordinates, default branch,
+  ordered explicit issues, warren dispatch identity, prompt or prompt digest,
+  layered USD caps, concurrency, expiry, and the approval envelope whose
+  digest must recompute over the normalized manifest. Unknown keys,
+  malformed coordinates/refs, duplicate issues, unlayered or over-limit
+  caps, expiry, and digest mismatches fail closed with actionable errors.
+- [`src/repository-policy.ts`](src/repository-policy.ts) — the
+  runtime-validated repository-policy snapshot schema (warren-5055):
+  provenance (source URL, fetched-at, sha256), staleness bound,
+  issue-first and AI-disclosure/evidence requirements, allowed work types,
+  forbidden/protected paths, the upstream observed open-PR limit, the
+  controller's stricter caps, required checks, and every mutation flag —
+  all of which must be present and `false` in V0.
+- [`src/mutations.ts`](src/mutations.ts) — the frozen GitHub mutation-flag
+  vocabulary. Dry-run is enforced by the schema: any enabled flag is a
+  validation error.
+- [`src/github-grammar.ts`](src/github-grammar.ts) — GitHub owner/repo and
+  git refname grammar, shared by both schemas.
+- [`src/digest.ts`](src/digest.ts) — canonical-JSON (recursively key-sorted)
+  sha256 digests, so approval binding never depends on key order or
+  timestamp spelling.
+- [`profiles/`](profiles/) — the committed OpenClaw example data: the repository
+  policy profile (pinning the upstream 20-open-PR limit with the stricter
+  controller caps 5 / 2 per day) and a digest-bound example campaign
+  manifest. OpenClaw lives here as data, never as controller conditionals.
+  Golden tests ([`src/openclaw-profile.test.ts`](src/openclaw-profile.test.ts))
+  pin the round-trip and the limits.
 - [`src/store/`](src/store/) — the controller-owned SQLite state store and
   action journal (plan pl-91b6 step 3, warren-2853): `bun:sqlite` with WAL,
   explicit transactional migrations, injected clock/ids, campaigns with
@@ -86,33 +114,33 @@ its deterministic fake —
   `Retry-After`, malformed envelopes (`respondOnceWith`), and restart
   (`restart()` wipes the non-durable idempotency store while runs survive).
 
-Not implemented yet (later pl-91b6 steps): the campaign manifest and
-repository-policy schemas, the warren client, validation/approval/admission,
-dispatch and reconciliation, the polling loop, and the CLI. The entrypoint
-([`src/index.ts`](src/index.ts)) is a placeholder that exits `not_implemented`.
-repository-policy schemas, the SQLite state store and action journal,
-validation/approval/admission, dispatch and
-reconciliation orchestration, PR-intent journaling, the polling loop, and
-the CLI. The entrypoint ([`src/index.ts`](src/index.ts)) is a placeholder that
-exits `not_implemented`.
+Not implemented yet (later pl-91b6 steps): validation/approval/admission,
+dispatch and reconciliation orchestration, PR-intent journaling, the
+polling loop, and the CLI. The entrypoint ([`src/index.ts`](src/index.ts))
+is a placeholder that exits `not_implemented`.
 
 ## Layout
 
 ```
 src/
-  clock.ts   injectable clock + id interfaces, prod defaults, test fakes
-  errors.ts  campaign-controller error base types
+src/
+  clock.ts             injectable clock + id interfaces, prod defaults, test fakes
+  digest.ts            canonical-JSON sha256 digests
+  errors.ts            campaign-controller error base types
+  github-grammar.ts    GitHub owner/repo + git refname grammar
+  manifest.ts          V0 campaign manifest schema + validation
+  mutations.ts         frozen mutation-flag vocabulary (all false in V0)
+  repository-policy.ts V0 repository-policy snapshot schema + validation
   store/     SQLite state store: schema, migrations, action journal, budget, leases
   github/    structurally read-only GitHub client, PR-intent renderer,
              dedupe/redaction helpers, and the fake GitHub server
-  index.ts   entrypoint placeholder + package identity
-  clock.ts         injectable clock + id interfaces, prod defaults, test fakes
-  errors.ts        campaign-controller error base types
   warren-client.ts minimal V0 Warren HTTP client (dispatch, detail, retries)
   warren-fake.ts   deterministic in-process fake Warren server
-  github/          structurally read-only GitHub client, PR-intent renderer,
-                   dedupe/redaction helpers, and the fake GitHub server
-  index.ts         entrypoint placeholder + package identity
+  index.ts   entrypoint placeholder + package identity
+profiles/
+  openclaw.repository-policy.json         committed OpenClaw policy profile
+  openclaw.campaign-manifest.example.json committed digest-bound example manifest
+index.ts   entrypoint placeholder + package identity
 ```
 
 ## Development

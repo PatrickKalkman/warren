@@ -63,6 +63,7 @@ domains:
   tracker: {}
   dispatch: {}
   tracker-port: {}
+  campaign-controller: {}
   storage: {}
   warren-api: {}
 governance:
