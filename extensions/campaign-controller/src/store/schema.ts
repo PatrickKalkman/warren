@@ -139,4 +139,15 @@ CREATE TABLE leases (
 );
 `,
 	},
+	{
+		id: 2,
+		name: "002_poll_cursors",
+		sql: `
+CREATE TABLE poll_cursors (
+	key TEXT PRIMARY KEY,
+	value_json TEXT NOT NULL,
+	updated_at_ms INTEGER NOT NULL
+);
+`,
+	},
 ];

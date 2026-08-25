@@ -236,6 +236,27 @@ export class EventStore {
 		};
 	}
 
+	listGithubEvents(campaignId: string): GithubEventRow[] {
+		const rows = this.#ctx.db
+			.query("SELECT * FROM github_events WHERE campaign_id = ? ORDER BY observed_at_ms, node_id")
+			.all(campaignId) as GithubEventDbRow[];
+		return rows.map((row) => this.getGithubEvent(row.node_id) as GithubEventRow);
+	}
+
+	/**
+	 * Replace a stored event's payload when the same node id was observed
+	 * again with different content (an upstream edit). The node id stays
+	 * the primary key, so the edit never forks a second durable event.
+	 */
+	updateGithubEventPayload(nodeId: string, payloadJson: string): void {
+		const result = this.#ctx.db
+			.query("UPDATE github_events SET payload_json = ? WHERE node_id = ?")
+			.run(payloadJson, nodeId);
+		if (result.changes === 0) {
+			throw new StateError(`github event ${nodeId} does not exist`);
+		}
+	}
+
 	addAttention(input: {
 		campaignId: string;
 		reason: string;

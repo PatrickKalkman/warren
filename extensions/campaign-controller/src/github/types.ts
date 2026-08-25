@@ -122,6 +122,8 @@ export interface GithubPullRequestSnapshot {
 	draft: boolean;
 	title: string;
 	authorLogin: string;
+	/** Author's association with the repository (OWNER/MEMBER/COLLABORATOR/...). */
+	authorAssociation: string | null;
 	headRef: string;
 	headSha: string;
 	headRepoFullName: string;
@@ -151,6 +153,8 @@ export interface GithubIssueCommentSnapshot {
 	nodeId: string;
 	id: number;
 	authorLogin: string;
+	/** Author's association with the repository, null when upstream omits it. */
+	authorAssociation: string | null;
 	body: string;
 	createdAt: string;
 	updatedAt: string;
@@ -162,6 +166,8 @@ export interface GithubReviewSnapshot {
 	nodeId: string;
 	id: number;
 	authorLogin: string;
+	/** Author's association with the repository, null when upstream omits it. */
+	authorAssociation: string | null;
 	state: string;
 	body: string;
 	submittedAt: string | null;
@@ -174,6 +180,8 @@ export interface GithubReviewCommentSnapshot {
 	nodeId: string;
 	id: number;
 	authorLogin: string;
+	/** Author's association with the repository, null when upstream omits it. */
+	authorAssociation: string | null;
 	body: string;
 	createdAt: string;
 	updatedAt: string;
