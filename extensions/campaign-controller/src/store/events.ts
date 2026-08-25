@@ -19,6 +19,11 @@ type RunLinkDbRow = {
 	action_id: string | null;
 	branch: string | null;
 	linked_at_ms: number;
+	ref: string | null;
+	terminal_state: string | null;
+	terminal_failure_reason: string | null;
+	terminal_cost_usd_cents: number | null;
+	terminal_at_ms: number | null;
 };
 
 type PrIdentityDbRow = {
@@ -54,6 +59,23 @@ type AttentionDbRow = {
 	created_at_ms: number;
 	resolved_at_ms: number | null;
 };
+
+function toRunLink(row: RunLinkDbRow): RunLinkRow {
+	return {
+		runId: row.run_id,
+		planRunId: row.plan_run_id,
+		campaignId: row.campaign_id,
+		workItemId: row.work_item_id,
+		actionId: row.action_id,
+		branch: row.branch,
+		linkedAtMs: row.linked_at_ms,
+		ref: row.ref,
+		terminalState: row.terminal_state,
+		terminalFailureReason: row.terminal_failure_reason,
+		terminalCostUsdCents: row.terminal_cost_usd_cents,
+		terminalAtMs: row.terminal_at_ms,
+	};
+}
 
 export class EventStore {
 	readonly #ctx: StoreContext;
@@ -99,15 +121,60 @@ export class EventStore {
 			.query("SELECT * FROM run_links WHERE run_id = ?")
 			.get(runId) as RunLinkDbRow | null;
 		if (row === null) return null;
-		return {
-			runId: row.run_id,
-			planRunId: row.plan_run_id,
-			campaignId: row.campaign_id,
-			workItemId: row.work_item_id,
-			actionId: row.action_id,
-			branch: row.branch,
-			linkedAtMs: row.linked_at_ms,
-		};
+		return toRunLink(row);
+	}
+
+	/** Every run link of a campaign, oldest first. */
+	listRunLinks(campaignId: string): RunLinkRow[] {
+		const rows = this.#ctx.db
+			.query("SELECT * FROM run_links WHERE campaign_id = ? ORDER BY linked_at_ms, run_id")
+			.all(campaignId) as RunLinkDbRow[];
+		return rows.map(toRunLink);
+	}
+
+	/** The run link produced by one action, if any. */
+	getRunLinkForAction(actionId: string): RunLinkRow | null {
+		const row = this.#ctx.db
+			.query("SELECT * FROM run_links WHERE action_id = ?")
+			.get(actionId) as RunLinkDbRow | null;
+		return row === null ? null : toRunLink(row);
+	}
+
+	/**
+	 * Record terminal facts (state, failure reason, ref, branch, cost) on a
+	 * run link. Idempotent: once terminal state is recorded, the row is
+	 * frozen and a later call returns it unchanged.
+	 */
+	settleRunLink(
+		runId: string,
+		facts: {
+			terminalState: string;
+			terminalFailureReason?: string | null;
+			ref?: string | null;
+			branch?: string | null;
+			terminalCostUsdCents?: number | null;
+		},
+	): RunLinkRow {
+		const existing = this.getRunLink(runId);
+		if (existing === null) throw new StateError(`unknown run link: ${runId}`);
+		if (existing.terminalState !== null) return existing;
+		this.#ctx.db
+			.query(
+				`UPDATE run_links SET
+					terminal_state = ?, terminal_failure_reason = ?, ref = COALESCE(?, ref),
+					branch = COALESCE(?, branch), terminal_cost_usd_cents = ?, terminal_at_ms = ?
+				 WHERE run_id = ? AND terminal_state IS NULL`,
+			)
+			.run(
+				facts.terminalState,
+				facts.terminalFailureReason ?? null,
+				facts.ref ?? null,
+				facts.branch ?? null,
+				facts.terminalCostUsdCents ?? null,
+				nowMs(this.#ctx),
+				runId,
+			);
+		return this.getRunLink(runId) as RunLinkRow;
 	}
 
 	/**

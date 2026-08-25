@@ -139,4 +139,15 @@ CREATE TABLE leases (
 );
 `,
 	},
+	{
+		id: 2,
+		name: "002_run_link_terminal_facts",
+		sql: `
+ALTER TABLE run_links ADD COLUMN ref TEXT;
+ALTER TABLE run_links ADD COLUMN terminal_state TEXT;
+ALTER TABLE run_links ADD COLUMN terminal_failure_reason TEXT;
+ALTER TABLE run_links ADD COLUMN terminal_cost_usd_cents INTEGER;
+ALTER TABLE run_links ADD COLUMN terminal_at_ms INTEGER;
+`,
+	},
 ];

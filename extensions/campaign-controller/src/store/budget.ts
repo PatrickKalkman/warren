@@ -83,6 +83,27 @@ export class BudgetStore {
 	}
 
 	/**
+	 * Bind an existing active reservation to the action that spends it, so
+	 * terminal settlement can find the reservation through the run link's
+	 * action. Fails closed when the reservation is not active.
+	 */
+	attachReservationAction(id: string, actionId: string): ReservationRow {
+		this.#requireActive(id);
+		this.#ctx.db
+			.query("UPDATE budget_reservations SET action_id = ? WHERE id = ?")
+			.run(actionId, id);
+		return this.getReservation(id) as ReservationRow;
+	}
+
+	/** The active reservation bound to an action, if any. */
+	getActiveReservationForAction(actionId: string): ReservationRow | null {
+		const row = this.#ctx.db
+			.query("SELECT * FROM budget_reservations WHERE action_id = ? AND state = 'active'")
+			.get(actionId) as ReservationDbRow | null;
+		return row === null ? null : toReservation(row);
+	}
+
+	/**
 	 * Replace an active reservation with the actual terminal cost. The
 	 * settled amount may exceed the reservation (the reservation only gated
 	 * dispatch; the ledger records what was really spent).

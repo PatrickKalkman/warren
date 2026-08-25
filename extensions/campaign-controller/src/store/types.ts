@@ -139,6 +139,14 @@ export interface RunLinkRow {
 	readonly actionId: string | null;
 	readonly branch: string | null;
 	readonly linkedAtMs: number;
+	/** Dispatch-supplied git ref the workspace was cloned from (terminal read). */
+	readonly ref: string | null;
+	/** Terminal state once reconciliation read it; null while the run lives. */
+	readonly terminalState: string | null;
+	readonly terminalFailureReason: string | null;
+	/** Actual terminal cost in cents; null until settled or when unknown. */
+	readonly terminalCostUsdCents: number | null;
+	readonly terminalAtMs: number | null;
 }
 
 /** Prospective/upstream cross-fork PR identity (dry-run rendered, never posted). */
