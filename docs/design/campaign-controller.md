@@ -11,7 +11,7 @@ long-running Warren campaigns off an operator's laptop and into the deployment.
 It fixes the extension kind, responsibility boundary, safety posture, and
 implementation sequence. Roadmap promotion on 2026-08-20 commits Phase 1 only;
 later phases remain evidence-gated. It does not approve a database schema, a
-public manifest format, autonomous upstream contributions, or a learned router.
+public manifest format, unconstrained upstream automation, or a learned router.
 
 **Grounds:** [`PHILOSOPHY.md`](../PHILOSOPHY.md),
 [`extensions.md`](./extensions.md),
@@ -19,6 +19,13 @@ public manifest format, autonomous upstream contributions, or a learned router.
 [`external-repository-mirror-pilot.md`](./external-repository-mirror-pilot.md),
 [`corpus-flywheel.md`](./corpus-flywheel.md), and the current
 `warren-dogfood-pipeline` skill.
+
+**Amended 2026-08-25:** the owner selected OpenClaw as the first
+repository-generic upstream-contribution target and approved plan `pl-91b6`
+for a dry-run-only V0. V0 may dispatch only against the bot-owned fork in
+fake or separately authorized Warren environments, render cross-fork PR
+intent, and read upstream state. It cannot mutate GitHub. Later PR and
+comment mutations remain evidence-gated by the ladder in §10.1.
 
 ---
 
@@ -49,6 +56,13 @@ A controller is not a persistent LLM supervisor. Its reconciliation and policy
 decisions are deterministic code. An LLM may propose a campaign or perform a
 bounded repair inside an ordinary Warren run. It does not receive an unbounded
 mutation tool loop over the control plane.
+
+The first upstream-contribution adapter is repository-generic GitHub code with
+an OpenClaw policy profile. A repository profile, not a controller fork, binds
+upstream and bot-fork coordinates, contribution-policy provenance, allowed
+work, protected paths, evidence requirements, and rate limits. A repository
+that rejects external fork PRs, cannot satisfy its CLA/DCO, or needs unavailable
+build authority is ineligible rather than a special case in controller code.
 
 ## 1. Why this exists
 
@@ -224,6 +238,26 @@ A later audit or planning agent may propose an ordered campaign manifest. Its
 output always lands in `awaiting_approval`. The model cannot approve its own
 proposal or directly invoke controller mutations.
 
+### 4.5 Upstream-contribution adapter
+
+The GitHub adapter maps one approved upstream repository to one bot-owned fork.
+Warren executes against the fork. The controller owns upstream policy,
+cross-fork PR identity, review/check/comment observation, and any later
+GitHub-side action. OpenClaw is V0's first policy profile, not hard-coded
+controller behavior.
+
+Plan `pl-91b6` is the dry-run vertical slice. It validates an immutable
+campaign, durably journals action intent, dispatches explicit issue work
+against a fake or separately authorized Warren project, renders but does not
+post the upstream PR request, and ingests GitHub state read-only. The
+production V0 GitHub transport has no mutation method. Dry run is a structural
+capability limit, not a boolean the operator may accidentally flip.
+
+V0 discovery is an explicit ordered issue list. It does not search, claim, or
+comment on issues. V0 monitoring may read participating notifications,
+reviews, review comments, issue comments, checks, and PR lifecycle. These
+inputs are untrusted facts; none is a controller command.
+
 ## 5. What existing Warren surfaces support
 
 A controller can already perform the narrow execution loop through HTTP:
@@ -381,6 +415,11 @@ The first release supports `observe_only`. Detached mirror campaigns may later
 reach `merge_mirror_only`. Upstream repositories remain `observe_only` during
 the mirror pilot.
 
+OpenClaw V0 is stricter than `observe_only`: it may render a prospective
+cross-fork PR action, but the GitHub client cannot execute it. A first live PR
+requires a new approval over a code revision that adds the exact mutation;
+possession or discovery of a credential never widens the approved level.
+
 Protected paths, including Warren's Article IX paths, always force
 `needs_attention` unless the approval explicitly includes them. A controller
 never infers standing merge authority from possession of a credential.
@@ -498,7 +537,7 @@ pay for after the first implementation proves the requirement.
 The first version observes PR state and stops when intervention is required.
 It does not update branches, enable auto-merge, resolve conflicts, or merge.
 
-A later GitHub-specific shepherd may hold a repository-scoped GitHub App
+A later GitHub-specific shepherd may hold a repository-scoped GitHub
 credential and, under explicit campaign permission:
 
 - inspect mergeability and check runs;
@@ -518,6 +557,61 @@ provider-neutral enough to promote.
 The controller reuses Warren's existing healer and CI-fixer behavior wherever
 it already applies. It does not build a parallel repair engine merely because
 it can call GitHub.
+
+### 10.1 Review-comment response ladder
+
+V0 ends after observation. It stores notifications only as wake-ups, then
+re-reads PR state, issue comments, submitted reviews, code review comments,
+and checks. Stable GitHub node ids deduplicate delivery. An edit produces an
+updated source fact; deletion or an inaccessible item becomes an explicit
+unknown, never an instruction to erase controller history.
+
+After V0 proves correct observation, comment response advances one capability
+at a time:
+
+1. **Propose** — classify feedback and draft a code or prose response into an
+   attention item. No GitHub write and no repair dispatch.
+2. **Repair** — dispatch a bounded Warren run against the existing bot-fork PR
+   branch when an approved policy recognizes a concrete requested change or
+   CI failure. Comment text is delimited untrusted input. The run receives no
+   controller or GitHub credential.
+3. **Prepare reply** — after the branch, proof, checks, and PR body are current,
+   render the exact reply, thread resolutions, and re-review request. A human
+   approves each mutation.
+4. **Typed automatic reply** — permit only predeclared actions such as an
+   acknowledgment, proof pointer, or repository-documented re-review command,
+   with action intent persisted before the write and state re-read afterward.
+5. **Repository policy automation** — widen automatic responses only after
+   measured merge/rejection/complaint evidence and a new approved policy
+   digest. Product disagreement, scope changes, maintainer questions,
+   security reports, and human takeover always stop for attention.
+
+A human contributor or maintainer actively working on the PR sets
+`human_takeover` and pauses repair/reply automation. The controller does not
+race a person, repeatedly summon a review bot, argue, or infer permission from
+silence. OpenClaw's documented re-review command is eligible only after the
+requested branch, PR-description, evidence, and check updates exist.
+
+Every repair/reply cycle has finite attempt, spend, and elapsed-time budgets.
+The action journal stores source event ids, approved-policy digest, proposed
+mutation digest, resulting Warren run/commit, and authoritative post-write
+state. A lost mutation response enters `uncertain`; it is re-read before any
+retry.
+
+### 10.2 Issue discovery and claiming
+
+Discovery follows the same ladder. First it lists candidates read-only from an
+operator allowlist and explicit labels. Then a human approves the immutable
+issue snapshot. Automatic claim comments or issue creation are separate
+mutations and remain off until repository policy, duplicate detection,
+assignment state, open-PR capacity, and maintainer coordination have all been
+proven.
+
+OpenClaw V0 accepts explicit issue ids only. A later candidate scorer must
+reject assigned or claimed work, existing linked PRs, known-main CI failures,
+refactor-only work, unsupported infrastructure, protected paths, and stale
+policy. Ranking optimizes expected accepted value and response capacity, not
+commit count.
 
 ## 11. Historical replay boundary
 
@@ -653,37 +747,58 @@ pleasant third-party contract.
 Historical replay needs policy that distinguishes allowed package/model/mirror
 hosts from upstream solution sources. Coarse open egress is insufficient.
 
+### 14.8 Cross-fork PR correlation
+
+Warren's `Forge.openPullRequest` receives one repository ref and cannot express
+a bot-owned fork as source plus a separately owned upstream target. V0 keeps
+the cross-fork PR and review identity in controller storage and renders only
+the prospective request. The first live shepherd may execute it through the
+extension-local GitHub client.
+
+Repeated operation decides whether Warren needs an external-PR attachment API
+or a provider-neutral cross-fork Forge shape. Neither core change is a V0
+prerequisite. Outcome reporting is controller-local until that decision.
+
 ## 15. Delivery sequence
 
 Approval of this record does not place these phases on the roadmap.
 
-### Phase 1 — durable dogfood coordinator
+### Phase 1 — durable coordinator plus OpenClaw dry-run V0
 
-Build only:
+The shared coordinator builds:
 
-- explicit campaign manifest;
-- approval digest;
-- budget and reservations;
-- plan-run dispatch, monitoring, cancel, and resume;
-- persistent action journal and restart reconciliation;
-- attention queue;
+- explicit campaign manifest and approval digest;
+- budget reservations and persistent action journal;
+- run or plan-run dispatch, monitoring, cancel, and resume;
+- restart reconciliation and fail-closed attention;
 - health/status API and notifications; and
 - final issue → run → PR → cost report.
 
-PR mutations remain manual.
+Plan `pl-91b6` adds the EOD OpenClaw slice: repository policy, bot-fork and
+upstream identity, explicit issue work, fake Warren/GitHub contracts,
+cross-fork PR-intent rendering, and read-only review/comment/check polling.
+The production GitHub client exposes no mutation. A live Warren dispatch also
+requires separate authorization; credential discovery is outside the plan.
 
 Acceptance milestone:
 
-> Approve one campaign, close the laptop, let the controller drive its
-> plan-run, restart the controller during execution, enforce the campaign
-> budget, stop at every unsafe PR state, and produce the same final report as
-> the current dogfood skill.
+> Approve one campaign, restart the controller during execution, enforce its
+> budget, produce one stable OpenClaw cross-fork PR intent, ingest duplicated
+> upstream observations exactly once, and prove that no GitHub mutation method
+> was available or called.
 
-### Phase 2 — bounded GitHub shepherd
+### Phase 2 — first live PR and bounded GitHub shepherd
 
-Add repository-scoped GitHub credentials, mergeability and check inspection,
-protected-path enforcement, update-branch, bounded repairs, and auto-merge
-only under standing campaign approval.
+A separate owner approval adds the exact cross-fork PR mutation and one
+credential supplied through deployment configuration. The first live PR is
+one issue and one PR, not a standing campaign authorization. The controller
+re-reads the created PR and stops at attention for all review feedback.
+
+After that proof, advance through §10.1: bounded branch repairs first,
+human-approved replies and re-review requests next, typed automatic responses
+later. Add mergeability and check inspection, protected-path enforcement,
+update-branch, and auto-merge only when each action has standing repository
+permission. Automatic merge is not required for the contributor campaign.
 
 ### Phase 3 — audit-to-campaign proposal
 
@@ -761,7 +876,8 @@ This direction does not approve:
 - moving campaign orchestration into Warren core;
 - converting audit-log or judge into mutating extensions;
 - an always-running LLM with unrestricted Warren or forge tools;
-- automatic upstream issues, PRs, comments, reviews, or merges;
+- any GitHub mutation in the OpenClaw V0 dry-run transport;
+- policy-free or repository-agnostic automatic upstream mutations;
 - automatic merge or repair without campaign permission;
 - project deletion or arbitrary administration;
 - controller-driven hidden-test exposure;
@@ -786,9 +902,15 @@ This direction does not approve:
   Merge and post-campaign reconciliation remain explicit.
 - **Governance bypass.** Protected paths and merge permissions are policy
   inputs, never inferred from token authority.
-- **Prompt injection.** Repository and issue text are untrusted. They cannot
-  mutate controller state except through an approved ordinary Warren run
-  whose output is treated as a proposal.
+- **Prompt injection.** Repository, issue, review, and comment text are
+  untrusted. They cannot mutate controller policy; an approved ordinary
+  Warren run treats them as delimited task evidence and its output remains a
+  proposal until the next policy gate.
+- **Repository reputation.** Excessive, duplicate, low-evidence, or
+  slow-to-respond contributions can harm the bot and Warren. Per-repository
+  concurrency/rate caps, human-takeover pauses, rejection/complaint circuit
+  breakers, and accepted-value metrics are safety controls, not growth
+  throttles to bypass.
 - **Replay leakage.** Hidden artifacts and upstream access require technical
   isolation, not instructions.
 - **Core dependency.** No Warren route, UI component, or boot path may require
@@ -809,7 +931,14 @@ The owner recorded these implementation choices:
 3. v1 may use Warren's current operator token only against a dedicated Warren
    deployment, rather than waiting for scoped service actors; and
 4. durable Warren dispatch correlation is not a prerequisite. An ambiguous
-   response enters `dispatch_uncertain` and fails closed instead of retrying.
+   response enters `dispatch_uncertain` and fails closed instead of retrying;
+5. OpenClaw is the first upstream policy profile, while the controller remains
+   repository-generic GitHub code;
+6. plan `pl-91b6` is dry-run only: it may render a cross-fork PR and ingest
+   upstream state, but it cannot mutate GitHub or inspect GKE secrets; and
+7. the first real PR, every credential handoff, and each step of the §10.1
+   response ladder require a separate explicit approval after V0 evidence.
 
-Repeated operation may pay for scoped service actors and durable server-side
-correlation. Neither is speculative Phase 1 work.
+Repeated operation may pay for scoped service actors, durable server-side
+correlation, and a cross-fork Forge or external-PR attachment surface. None is
+speculative Phase 1 work.
