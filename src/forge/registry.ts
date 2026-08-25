@@ -10,7 +10,10 @@
  *
  * Selection rules (§1.1):
  *   - `WARREN_FORGE` unset (or blank) → `github` (the default forge).
- *   - `github` → `GitHubForge` over the static `GITHUB_TOKEN` secret.
+ *   - `github` → `GitHubForge` over the static secret, read from
+ *     `WARREN_GIT_TOKEN` and then `GITHUB_TOKEN` (warren-1b6f: the same
+ *     order the K8s pod path already reads, so one variable names the git
+ *     credential whatever the forge is).
  *   - `app`    → `GitHubAppForge` (warren-f8df) over the
  *     `WARREN_GITHUB_APP_ID` / `WARREN_GITHUB_APP_INSTALLATION_ID` /
  *     `WARREN_GITHUB_APP_PRIVATE_KEY` triple; a missing or unparseable
@@ -60,9 +63,10 @@ export type ForgeEnv = Readonly<Record<string, string | undefined>>;
 export interface ForgeDeps {
 	/**
 	 * Lazy static-secret factory for the `github` arm. Optional — when
-	 * omitted the selector reads `GITHUB_TOKEN` from the same env the
-	 * selection came from. A test injects a throwing factory here to prove
-	 * the `fake` arm never touches the github arm's inputs.
+	 * omitted the selector reads `WARREN_GIT_TOKEN`, then `GITHUB_TOKEN`,
+	 * from the same env the selection came from. A test injects a throwing
+	 * factory here to prove the `fake` arm never touches the github arm's
+	 * inputs.
 	 */
 	readonly githubToken?: () => string;
 	/**
@@ -120,11 +124,30 @@ export function resolveForgeKind(env: ForgeEnv = process.env): ForgeKind {
  * `WARREN_FORGE` (see module doc) and constructs the chosen forge from
  * `deps`.
  */
+/**
+ * The first env token that carries something, trimmed.
+ *
+ * An operator who exports `WARREN_GIT_TOKEN=""` has not chosen a neutral
+ * token, so an empty or blank value must not shadow a valid `GITHUB_TOKEN`
+ * behind it. Same rule as `normalizeToken` in
+ * `src/runtime/k8s/git-tokens.ts`, which the comment below claims parity with.
+ */
+function firstToken(...raw: readonly (string | undefined)[]): string {
+	for (const value of raw) {
+		const trimmed = value?.trim();
+		if (trimmed !== undefined && trimmed !== "") return trimmed;
+	}
+	return "";
+}
+
 export function resolveForge(deps: ForgeDeps = {}, env: ForgeEnv = process.env): Forge {
 	const kind = resolveForgeKind(env);
 	switch (kind) {
 		case "github": {
-			const tokenFactory = deps.githubToken ?? (() => env.GITHUB_TOKEN ?? "");
+			// warren-1b6f: the forge-neutral name wins, and GITHUB_TOKEN stays as
+			// the fallback, matching `src/runtime/k8s/git-tokens.ts`.
+			const tokenFactory =
+				deps.githubToken ?? (() => firstToken(env.WARREN_GIT_TOKEN, env.GITHUB_TOKEN));
 			return new GitHubForge({
 				token: tokenFactory(),
 				...(deps.githubFetch !== undefined ? { fetch: deps.githubFetch } : {}),
