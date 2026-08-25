@@ -76,7 +76,18 @@ export class EventStore {
 		branch?: string | null;
 	}): RunLinkRow {
 		const existing = this.getRunLink(input.runId);
-		if (existing !== null) return existing;
+		if (existing !== null) {
+			// Re-correlating a known run is a no-op, except that reconciliation
+			// (warren-2a0a) learns the pushed branch only at terminal state and
+			// records it here — a late branch fact enriches, never rewrites.
+			if (input.branch != null && existing.branch !== input.branch) {
+				this.#ctx.db
+					.query("UPDATE run_links SET branch = ? WHERE run_id = ?")
+					.run(input.branch, input.runId);
+				return this.getRunLink(input.runId) as RunLinkRow;
+			}
+			return existing;
+		}
 		this.#ctx.db
 			.query(
 				`INSERT INTO run_links (run_id, plan_run_id, campaign_id, work_item_id, action_id, branch, linked_at_ms)
@@ -108,6 +119,22 @@ export class EventStore {
 			branch: row.branch,
 			linkedAtMs: row.linked_at_ms,
 		};
+	}
+
+	/** Every run link of one campaign — restart reconciliation scans these. */
+	listRunLinks(campaignId: string): RunLinkRow[] {
+		const rows = this.#ctx.db
+			.query("SELECT * FROM run_links WHERE campaign_id = ? ORDER BY linked_at_ms, run_id")
+			.all(campaignId) as RunLinkDbRow[];
+		return rows.map((row) => ({
+			runId: row.run_id,
+			planRunId: row.plan_run_id,
+			campaignId: row.campaign_id,
+			workItemId: row.work_item_id,
+			actionId: row.action_id,
+			branch: row.branch,
+			linkedAtMs: row.linked_at_ms,
+		}));
 	}
 
 	/**

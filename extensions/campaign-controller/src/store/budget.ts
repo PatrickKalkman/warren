@@ -83,6 +83,30 @@ export class BudgetStore {
 	}
 
 	/**
+	 * Attach an active reservation to the action it funds (warren-2a0a).
+	 * Admission reserves before the dispatch action exists; the dispatch
+	 * plan binds the two inside the same transaction so restart
+	 * reconciliation can settle by action.
+	 */
+	bindReservation(id: string, actionId: string): ReservationRow {
+		this.#requireActive(id);
+		this.#ctx.db
+			.query("UPDATE budget_reservations SET action_id = ? WHERE id = ?")
+			.run(actionId, id);
+		return this.getReservation(id) as ReservationRow;
+	}
+
+	/** Active reservations bound to one action — restart settlement reads. */
+	activeReservationsForAction(actionId: string): ReservationRow[] {
+		const rows = this.#ctx.db
+			.query(
+				"SELECT * FROM budget_reservations WHERE action_id = ? AND state = 'active' ORDER BY created_at_ms, id",
+			)
+			.all(actionId) as ReservationDbRow[];
+		return rows.map(toReservation);
+	}
+
+	/**
 	 * Replace an active reservation with the actual terminal cost. The
 	 * settled amount may exceed the reservation (the reservation only gated
 	 * dispatch; the ledger records what was really spent).

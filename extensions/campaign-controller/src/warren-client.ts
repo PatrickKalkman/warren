@@ -235,6 +235,22 @@ export function readTerminalFacts(run: WarrenRunView): WarrenTerminalFacts {
 	};
 }
 
+/**
+ * The exact JSON body `POST /runs` receives, as a plain object. Exported so
+ * the dispatcher (warren-2a0a) digests the exact request before any I/O and
+ * this client serializes the identical shape — one definition, no drift.
+ */
+export function dispatchRequestBody(input: WarrenDispatchInput): Record<string, unknown> {
+	return {
+		agent: input.agent,
+		project: input.project,
+		prompt: input.prompt,
+		...(input.provider !== undefined ? { providerOverride: input.provider } : {}),
+		...(input.model !== undefined ? { modelOverride: input.model } : {}),
+		...(input.maxCostUsd !== undefined ? { maxCostUsd: input.maxCostUsd } : {}),
+	};
+}
+
 /** The minimal Warren HTTP client for V0. */
 export class WarrenClient {
 	private readonly baseUrl: string;
@@ -302,14 +318,7 @@ export class WarrenClient {
 		if (key === "") {
 			throw new ValidationError("idempotencyKey is required for dispatch");
 		}
-		const body = JSON.stringify({
-			agent: input.agent,
-			project: input.project,
-			prompt: input.prompt,
-			...(input.provider !== undefined ? { providerOverride: input.provider } : {}),
-			...(input.model !== undefined ? { modelOverride: input.model } : {}),
-			...(input.maxCostUsd !== undefined ? { maxCostUsd: input.maxCostUsd } : {}),
-		});
+		const body = JSON.stringify(dispatchRequestBody(input));
 		let res: Response;
 		try {
 			res = await this.fetchFn(`${this.baseUrl}/runs`, {
