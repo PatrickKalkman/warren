@@ -110,6 +110,43 @@ export {
 	NO_MUTATIONS,
 } from "./mutations.ts";
 export {
+	type AttentionDerivationInput,
+	type DerivedAttention,
+	deriveAttention,
+} from "./reconcile/attention.ts";
+export {
+	checkRunEvent,
+	combinedStatusEvent,
+	deletedEventOf,
+	editEventOf,
+	issueCommentEvent,
+	type NormalizedSourceEvent,
+	notificationEvent,
+	policyContentEvent,
+	prInaccessibleEvent,
+	prStateEvent,
+	reviewCommentEvent,
+	reviewEvent,
+} from "./reconcile/normalize.ts";
+export {
+	type NotificationWakeUp,
+	type ReconcilePullRequestInput,
+	type ReconcilePullRequestResult,
+	UpstreamPrReconciler,
+	type UpstreamReconcilerDeps,
+} from "./reconcile/reconciler.ts";
+export {
+	type AttentionReason,
+	FAILING_CHECK_CONCLUSIONS,
+	FAILING_COMBINED_STATES,
+	KNOWN_CHECK_CONCLUSIONS,
+	KNOWN_CHECK_STATUSES,
+	KNOWN_PR_STATES,
+	KNOWN_REVIEW_STATES,
+	MAINTAINER_ASSOCIATIONS,
+	type UpstreamEventKind,
+} from "./reconcile/types.ts";
+export {
 	MAX_STALENESS_DAYS,
 	OPENCLAW_UPSTREAM_MAX_OPEN_PRS,
 	type PolicySource,
@@ -124,6 +161,7 @@ export {
 export { ActionStore, type SettleActionInput } from "./store/actions.ts";
 export { BudgetStore } from "./store/budget.ts";
 export { CampaignStore } from "./store/campaigns.ts";
+export { CursorStore } from "./store/cursors.ts";
 export { EventStore } from "./store/events.ts";
 export { LeaseStore } from "./store/leases.ts";
 export { MIGRATIONS } from "./store/schema.ts";
@@ -141,6 +179,7 @@ export {
 	type CampaignStatus,
 	type GithubEventRow,
 	type LeaseRow,
+	type PollCursorRow,
 	type PrIdentityRow,
 	type ReservationRow,
 	type ReservationState,

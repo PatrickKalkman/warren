@@ -158,13 +158,30 @@ export interface PrIdentityRow {
 	readonly createdAtMs: number;
 }
 
-/** A deduplicated upstream source event keyed by stable GitHub node id. */
+/**
+ * A deduplicated upstream source event keyed by stable GitHub node id.
+ *
+ * The durable dedupe identity is repository + event kind + node id
+ * (warren-323d); `payloadDigest` is the canonical-JSON sha256 of the
+ * normalized payload, so an edit is detectable without comparing raw
+ * bodies and history rows stay insert-only.
+ */
 export interface GithubEventRow {
 	readonly nodeId: string;
 	readonly campaignId: string;
 	readonly eventKind: string;
+	/** `owner/repo` of the upstream repository the fact was read from. */
+	readonly repository: string;
 	readonly payloadJson: string;
+	readonly payloadDigest: string;
 	readonly observedAtMs: number;
+}
+
+/** A durable reconciliation cursor (warren-323d restart recovery). */
+export interface PollCursorRow {
+	readonly scope: string;
+	readonly checkpointJson: string;
+	readonly updatedAtMs: number;
 }
 
 /** A durable human-attention queue entry. */

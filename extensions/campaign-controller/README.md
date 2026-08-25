@@ -114,9 +114,28 @@ its deterministic fake —
   `Retry-After`, malformed envelopes (`respondOnceWith`), and restart
   (`restart()` wipes the non-durable idempotency store while runs survive).
 
+Landed in plan step 9 (warren-323d): read-only upstream PR reconciliation —
+
+- [`src/reconcile/`](src/reconcile/) — `UpstreamPrReconciler` treats
+  participating notifications purely as wake-ups, then reconciles
+  authoritative PR, review, issue-comment, review-comment, and check state
+  through the read-only client. Facts are normalized in
+  [`normalize.ts`](src/reconcile/normalize.ts) and durably deduplicated by
+  repository + event kind + node id: reordered pages, duplicates, edits
+  (`_edit` facts), deletions (`_deleted` tombstones), and 404s
+  (`pr_inaccessible`) all converge without erasing history, and restart
+  cursors (`poll_cursors`) resume a poll instead of replaying it.
+  [`attention.ts`](src/reconcile/attention.ts) derives the full V0
+  attention set — requested changes, maintainer comments, failing checks,
+  policy drift, human takeover, stale author action, unresolved ambiguity —
+  as pure functions, deduped durably against the open attention queue.
+  Comment text is untrusted data and never a controller command; the
+  reconciler holds only `ReadOnlyGithubClient`, so every request is
+  GET/HEAD by construction.
+
 Not implemented yet (later pl-91b6 steps): validation/approval/admission,
-dispatch and reconciliation orchestration, PR-intent journaling, the
-polling loop, and the CLI. The entrypoint ([`src/index.ts`](src/index.ts))
+dispatch and reconciliation orchestration, PR-intent journaling, and the
+CLI. The entrypoint ([`src/index.ts`](src/index.ts))
 is a placeholder that exits `not_implemented`.
 
 ## Layout
@@ -136,6 +155,8 @@ src/
              dedupe/redaction helpers, and the fake GitHub server
   warren-client.ts minimal V0 Warren HTTP client (dispatch, detail, retries)
   warren-fake.ts   deterministic in-process fake Warren server
+  reconcile/ read-only upstream PR reconciliation, attention derivation,
+             and durable dedupe/cursor handling
   index.ts   entrypoint placeholder + package identity
 profiles/
   openclaw.repository-policy.json         committed OpenClaw policy profile

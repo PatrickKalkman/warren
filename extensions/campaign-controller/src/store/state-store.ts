@@ -17,6 +17,7 @@ import type { Clock, IdGenerator } from "../clock.ts";
 import { ActionStore } from "./actions.ts";
 import { BudgetStore } from "./budget.ts";
 import { CampaignStore } from "./campaigns.ts";
+import { CursorStore } from "./cursors.ts";
 import { EventStore } from "./events.ts";
 import { LeaseStore } from "./leases.ts";
 import { MIGRATIONS } from "./schema.ts";
@@ -40,6 +41,7 @@ export class CampaignStateStore {
 	readonly campaigns: CampaignStore;
 	readonly actions: ActionStore;
 	readonly events: EventStore;
+	readonly cursors: CursorStore;
 	readonly leases: LeaseStore;
 	readonly budget: BudgetStore;
 
@@ -57,6 +59,7 @@ export class CampaignStateStore {
 		this.campaigns = new CampaignStore(ctx);
 		this.actions = new ActionStore(ctx);
 		this.events = new EventStore(ctx);
+		this.cursors = new CursorStore(ctx);
 		this.leases = new LeaseStore(ctx);
 		this.budget = new BudgetStore(ctx);
 		this.migrate();

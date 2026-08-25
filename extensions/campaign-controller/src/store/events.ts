@@ -43,6 +43,8 @@ type GithubEventDbRow = {
 	event_kind: string;
 	payload_json: string;
 	observed_at_ms: number;
+	repository: string;
+	payload_digest: string;
 };
 
 type AttentionDbRow = {
@@ -54,6 +56,18 @@ type AttentionDbRow = {
 	created_at_ms: number;
 	resolved_at_ms: number | null;
 };
+
+function toGithubEvent(row: GithubEventDbRow): GithubEventRow {
+	return {
+		nodeId: row.node_id,
+		campaignId: row.campaign_id,
+		eventKind: row.event_kind,
+		repository: row.repository,
+		payloadJson: row.payload_json,
+		payloadDigest: row.payload_digest,
+		observedAtMs: row.observed_at_ms,
+	};
+}
 
 export class EventStore {
 	readonly #ctx: StoreContext;
@@ -205,20 +219,35 @@ export class EventStore {
 	/**
 	 * Ingest an upstream source event keyed by its stable GitHub node id.
 	 * Returns true when the event is new, false when it was already stored —
-	 * duplicated polling delivers exactly once.
+	 * duplicated polling delivers exactly once. The row is insert-only: an
+	 * edit upstream is recorded as a *new* event (`<kind>_edit` with a
+	 * digest-derived node id) by the reconciler, never by overwriting the
+	 * first observed fact (design record §10.1).
 	 */
 	recordGithubEvent(input: {
 		nodeId: string;
 		campaignId: string;
 		eventKind: string;
 		payloadJson: string;
+		/** `owner/repo` the fact was read from (dedupe identity component). */
+		repository?: string;
+		/** Canonical-JSON sha256 of the normalized payload (edit detection). */
+		payloadDigest?: string;
 	}): boolean {
 		const result = this.#ctx.db
 			.query(
-				`INSERT INTO github_events (node_id, campaign_id, event_kind, payload_json, observed_at_ms)
-				 VALUES (?, ?, ?, ?, ?) ON CONFLICT(node_id) DO NOTHING`,
+				`INSERT INTO github_events (node_id, campaign_id, event_kind, payload_json, observed_at_ms, repository, payload_digest)
+				 VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(node_id) DO NOTHING`,
 			)
-			.run(input.nodeId, input.campaignId, input.eventKind, input.payloadJson, nowMs(this.#ctx));
+			.run(
+				input.nodeId,
+				input.campaignId,
+				input.eventKind,
+				input.payloadJson,
+				nowMs(this.#ctx),
+				input.repository ?? "",
+				input.payloadDigest ?? "",
+			);
 		return result.changes === 1;
 	}
 
@@ -227,13 +256,29 @@ export class EventStore {
 			.query("SELECT * FROM github_events WHERE node_id = ?")
 			.get(nodeId) as GithubEventDbRow | null;
 		if (row === null) return null;
-		return {
-			nodeId: row.node_id,
-			campaignId: row.campaign_id,
-			eventKind: row.event_kind,
-			payloadJson: row.payload_json,
-			observedAtMs: row.observed_at_ms,
-		};
+		return toGithubEvent(row);
+	}
+
+	/**
+	 * Every stored event for a campaign, optionally narrowed to one event
+	 * kind, oldest first. The reconciler folds these into a per-node latest
+	 * digest map for edit/deletion detection (warren-323d).
+	 */
+	listGithubEvents(campaignId: string, eventKind?: string): GithubEventRow[] {
+		const rows = (
+			eventKind === undefined
+				? this.#ctx.db
+						.query(
+							"SELECT * FROM github_events WHERE campaign_id = ? ORDER BY observed_at_ms, node_id",
+						)
+						.all(campaignId)
+				: this.#ctx.db
+						.query(
+							"SELECT * FROM github_events WHERE campaign_id = ? AND event_kind = ? ORDER BY observed_at_ms, node_id",
+						)
+						.all(campaignId, eventKind)
+		) as GithubEventDbRow[];
+		return rows.map(toGithubEvent);
 	}
 
 	addAttention(input: {

@@ -139,4 +139,23 @@ CREATE TABLE leases (
 );
 `,
 	},
+	{
+		id: 2,
+		name: "002_reconciliation_cursors",
+		sql: `
+-- warren-323d: upstream PR reconciliation needs repository/kind-scoped
+-- dedupe facts (payload digests detect edits without erasing history) and
+-- durable restart cursors so a controller restart resumes a poll instead
+-- of replaying it.
+ALTER TABLE github_events ADD COLUMN repository TEXT NOT NULL DEFAULT '';
+ALTER TABLE github_events ADD COLUMN payload_digest TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_github_events_kind ON github_events(campaign_id, event_kind);
+
+CREATE TABLE poll_cursors (
+	scope TEXT PRIMARY KEY,
+	checkpoint_json TEXT NOT NULL,
+	updated_at_ms INTEGER NOT NULL
+);
+`,
+	},
 ];
