@@ -8,7 +8,7 @@ import {
 	runAnalyticsApi,
 } from "@/api/client.ts";
 import type { RunRow } from "@/api/types.ts";
-import { formatCostUsd } from "@/pages/run-detail.tsx";
+import { formatCostUsd } from "@/pages/run-detail-format.ts";
 import { type JudgeStoreRow, useJudgeVerdicts } from "@/pages/telemetry/judge-verdicts.ts";
 import { useRunsJoin } from "@/pages/telemetry/runs-join.ts";
 import { TelemetryPanel } from "@/pages/telemetry/telemetry-panel.tsx";

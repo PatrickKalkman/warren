@@ -1,4 +1,4 @@
-import { formatCostUsd } from "@/pages/run-detail.tsx";
+import { formatCostUsd } from "@/pages/run-detail-format.ts";
 import { summarizeJudgeVerdicts, useJudgeVerdicts } from "@/pages/telemetry/judge-verdicts.ts";
 import { useTelemetryWindow } from "@/pages/telemetry/use-telemetry-window.tsx";
 
