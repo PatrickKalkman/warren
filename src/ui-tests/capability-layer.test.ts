@@ -201,13 +201,16 @@ describe("redacted wire fields render on presence (warren-f53e)", () => {
 		expect(runs).toMatch(/costTotals\.total !== undefined/);
 	});
 
-	test("the agents panel reads the flat metadata that survives projection", () => {
+	test("the agents registry reads the flat metadata that survives projection", () => {
 		const agents = read("pages", "agents.tsx");
 		expect(agents).toMatch(/agent\.provider \?\?/);
 		expect(agents).toMatch(/agent\.model \?\?/);
-		// The rendered envelope (system prompt, canopy paths) is dropped for
-		// a spectator, so its half of the panel is operator-only.
-		expect(agents).toMatch(/<OperatorOnly capability="readOperator">\s*<AgentDefinitionInternals/);
+		// The rendered envelope (system prompt, cost cap) is dropped for a
+		// spectator, so the Direction C registry (warren-db84) reads the
+		// cost cap out of `renderedJson` only under a strict narrowing
+		// guard — a spectator's cell degrades to "—", never a guess.
+		expect(agents).toMatch(/readCostCap/);
+		expect(agents).toMatch(/typeof cap === "number" && Number\.isFinite/);
 	});
 
 	// warren-e274: `REDACTED_RUN_TOTALS_FIELDS` drops `totals.cost` and
