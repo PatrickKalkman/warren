@@ -60,7 +60,17 @@ ensure_bun() {
     return
   fi
   log "installing bun (user-local, $BUN_INSTALL)"
-  curl -fsSL https://bun.sh/install | sh || die "bun installer failed"
+  # bun's official installer is a bash script (its shebang says so), and it
+  # uses `set -o pipefail`, which dash rejects. Never pipe it into `sh` —
+  # `curl | sh` strips the shebang, so the CI smoke job died on dash with
+  # "set: Illegal option -o pipefail". Download to a temp file and execute
+  # it directly instead: honoring the shebang runs it under bash.
+  installer=$(mktemp) || die "mktemp failed"
+  trap 'rm -f "$installer"' EXIT
+  curl -fsSL https://bun.sh/install -o "$installer" || die "failed to download the bun installer"
+  command -v bash >/dev/null 2>&1 || die "bash is required to install bun"
+  bash "$installer" || die "bun installer failed"
+  rm -f "$installer"
   [ -x "$BUN_INSTALL/bin/bun" ] || die "bun installer reported success but $BUN_INSTALL/bin/bun is missing"
   bun_version=$("$BUN_INSTALL/bin/bun" --version)
   log "installed bun $bun_version"
