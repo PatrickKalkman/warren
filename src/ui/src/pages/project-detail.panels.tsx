@@ -10,6 +10,11 @@ import type {
 import { OperatorOnly } from "@/components/operator-only.tsx";
 import { Alert } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import {
+	CardFigureNote,
+	InventoryCardList,
+	InventoryRowCard,
+} from "@/components/ui/inventory-card.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { formatError } from "@/lib/format-error.ts";
 import { relativeTime } from "@/lib/utils.ts";
@@ -27,6 +32,13 @@ const PANEL =
 	"flex min-w-0 flex-col rounded-[4px] border border-(--color-border) bg-(--color-surface)";
 const PANEL_HEAD =
 	"flex h-[41px] shrink-0 items-center gap-2.5 border-b border-b-(--color-border) px-3.5";
+/* Fixed-label dt rows: below md the label column widens to the shared
+ * 110px fact-row measure and the value right-aligns (warren-89aa, the
+ * instance FactRow treatment); desktop stays as it was. */
+const DT_LABEL =
+	"w-[110px] shrink-0 text-[11px] leading-[14px] text-(--color-text-3) md:w-[120px]";
+const DD_VALUE =
+	"min-w-0 flex-1 truncate text-right font-mono text-[10px] leading-3 md:flex-none md:text-left";
 const PANEL_TITLE = "text-[12px] leading-4 font-semibold text-(--color-text)";
 const PANEL_META = "font-mono text-[9px] leading-3 text-(--color-text-3)";
 const HEAD_NOTE = "font-mono text-[9px] leading-3 tracking-[0.05em] text-(--color-text-3)";
@@ -137,12 +149,8 @@ function DefaultsColumn({ entries }: { entries: Array<[string, string]> }) {
 		<dl className="flex min-w-0 flex-1 flex-col gap-2.5">
 			{entries.map(([key, value]) => (
 				<div key={key} className="flex items-center gap-2.5">
-					<dt className="w-[120px] shrink-0 text-[11px] leading-[14px] text-(--color-text-3)">
-						{key}
-					</dt>
-					<dd className="min-w-0 truncate font-mono text-[10px] leading-3 text-(--color-text-2)">
-						{value}
-					</dd>
+					<dt className={DT_LABEL}>{key}</dt>
+					<dd className={`${DD_VALUE} text-(--color-text-2)`}>{value}</dd>
 				</div>
 			))}
 		</dl>
@@ -195,20 +203,100 @@ export function TriggersPanel({ projectId }: { projectId: string }) {
 			) : list.length === 0 ? (
 				<EmptyRow text="No triggers configured — edit .warren/triggers.yaml on the project repo to add one." />
 			) : (
-				list.map((t, i) => (
-					<TriggerRow
-						key={t.id}
-						trigger={t}
-						last={i === list.length - 1}
-						isRunning={runNow.isPending && runNow.variables === t.id}
-						runError={
-							runNow.isError && runNow.variables === t.id ? formatError(runNow.error) : null
-						}
-						onRunNow={() => runNow.mutate(t.id)}
-					/>
-				))
+				<>
+					{/* No mobile artboard for this page (warren-89aa): degrade
+					    to the shared row-card pattern; desktop rows stay behind
+					    `md:`. */}
+					<InventoryCardList>
+						{list.map((t) => (
+							<TriggerCard
+								key={t.id}
+								trigger={t}
+								isRunning={runNow.isPending && runNow.variables === t.id}
+								runError={
+									runNow.isError && runNow.variables === t.id ? formatError(runNow.error) : null
+								}
+								onRunNow={() => runNow.mutate(t.id)}
+							/>
+						))}
+					</InventoryCardList>
+					<div className="hidden md:block">
+						{list.map((t, i) => (
+							<TriggerRow
+								key={t.id}
+								trigger={t}
+								last={i === list.length - 1}
+								isRunning={runNow.isPending && runNow.variables === t.id}
+								runError={
+									runNow.isError && runNow.variables === t.id ? formatError(runNow.error) : null
+								}
+								onRunNow={() => runNow.mutate(t.id)}
+							/>
+						))}
+					</div>
+				</>
 			)}
 		</section>
+	);
+}
+
+function TriggerCard({
+	trigger,
+	isRunning,
+	runError,
+	onRunNow,
+}: {
+	trigger: TriggerSummary;
+	isRunning: boolean;
+	runError: string | null;
+	onRunNow: () => void;
+}) {
+	const lastFired =
+		trigger.lastRunId !== null ? (
+			<Link
+				to={`/runs/${encodeURIComponent(trigger.lastRunId)}`}
+				className="underline-offset-2 hover:underline"
+			>
+				last fired {relativeTime(trigger.lastFiredAt)}
+			</Link>
+		) : trigger.lastFiredAt !== null ? (
+				`last fired ${relativeTime(trigger.lastFiredAt)}`
+		) : (
+			"never fired"
+		);
+	const prompt =
+		trigger.parseError !== null
+			? `cron parse error: ${trigger.parseError}`
+			: (trigger.prompt ?? "—");
+	return (
+		<InventoryRowCard
+			tone={trigger.parseError !== null ? "danger" : "neutral"}
+			stateLabel={trigger.role}
+			title={trigger.id}
+			subline={`${trigger.cron} ${trigger.timezone ?? "UTC"}${trigger.seed !== undefined ? ` · ${trigger.seed}` : ""}`}
+			figures={<CardFigureNote value={lastFired} />}
+			meta={
+				<span
+					className={trigger.parseError !== null ? "text-(--color-danger)" : undefined}
+					title={runError ?? undefined}
+				>
+					{runError !== null ? `${prompt} · ${runError}` : prompt}
+				</span>
+			}
+		>
+			{/* `POST /projects/:id/triggers/:tid/run` is `dispatch`-gated. */}
+			<OperatorOnly>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-6 px-2.5 text-[10px]"
+					onClick={onRunNow}
+					disabled={isRunning}
+				>
+					{isRunning ? "Dispatching…" : "Run now"}
+				</Button>
+			</OperatorOnly>
+		</InventoryRowCard>
 	);
 }
 

@@ -4,6 +4,13 @@ import type { PlanRunChildRow, PlanRunRow, RunRow } from "@/api/types.ts";
 import { formatPlanRunFailureReason } from "@/lib/labels.ts";
 import { relativeTime } from "@/lib/utils.ts";
 import { CHILD_SQUARE_COLOR } from "../plan-runs/walk-state.ts";
+import {
+	CardFigure,
+	CardFigureNote,
+	type InventoryCardTone,
+	InventoryCardList,
+	InventoryRowCard,
+} from "@/components/ui/inventory-card.tsx";
 
 /**
  * The Child walk panel of the walk inspector (warren-2520): one row per
@@ -62,18 +69,39 @@ export function ChildWalkPanel({
 					No children — the plan had no open child seeds at dispatch.
 				</p>
 			) : (
-				childRows.map((c) => {
-					const run = c.runId !== null ? runIndex.get(c.runId) : undefined;
-					return (
-						<ChildRow
-							key={`${c.planRunId}-${c.seq}`}
-							child={c}
-							run={run}
-							gateSeq={gateSeq}
-							isGate={c.seq === gateSeq && !isTerminalWalk(planRun)}
-						/>
-					);
-				})
+				<>
+					{/* No mobile artboard for this page (warren-89aa): degrade
+					    to the shared row-card pattern by analogy with the mocked
+					    inventories; the desktop table stays behind `md:`. */}
+					<InventoryCardList>
+						{childRows.map((c) => {
+							const run = c.runId !== null ? runIndex.get(c.runId) : undefined;
+							return (
+								<ChildCard
+									key={`${c.planRunId}-${c.seq}`}
+									child={c}
+									run={run}
+									gateSeq={gateSeq}
+									isGate={c.seq === gateSeq && !isTerminalWalk(planRun)}
+								/>
+							);
+						})}
+					</InventoryCardList>
+					<div className="hidden md:block">
+						{childRows.map((c) => {
+							const run = c.runId !== null ? runIndex.get(c.runId) : undefined;
+							return (
+								<ChildRow
+									key={`${c.planRunId}-${c.seq}`}
+									child={c}
+									run={run}
+									gateSeq={gateSeq}
+									isGate={c.seq === gateSeq && !isTerminalWalk(planRun)}
+								/>
+							);
+						})}
+					</div>
+				</>
 			)}
 
 			<footer className="flex h-[37px] shrink-0 items-center gap-2.5 px-3.5">
@@ -166,6 +194,111 @@ function ChildRow({
 	);
 }
 
+/** Child state → card tone, mirroring CHILD_SQUARE_COLOR's mapping. */
+const CHILD_CARD_TONE: Record<PlanRunChildRow["state"], InventoryCardTone> = {
+	pending: "muted",
+	dispatched: "info",
+	running: "info",
+	pr_open: "warning",
+	merged: "success",
+	failed: "danger",
+	skipped: "neutral",
+};
+
+/** The quiet timing / gate line both arms render (desktop status cell,
+ * mobile card meta). Raw coordinator text rides the title tooltip. */
+function childStatusText(
+	child: PlanRunChildRow,
+	gateSeq: number | null,
+): { text: string | null; title?: string } {
+	if (child.state === "failed") {
+		return {
+			text: child.failureReason === null ? "failed" : formatPlanRunFailureReason(child.failureReason),
+			title: child.failureReason ?? undefined,
+		};
+	}
+	if (child.state === "merged") {
+		const at = child.prMergedAt ?? child.endedAt;
+		return { text: at !== null ? `merged ${relativeTime(at)}` : "merged" };
+	}
+	if (child.state === "pr_open") {
+		return { text: `open ${relativeTime(child.updatedAt)} · waiting for merge` };
+	}
+	if (child.state === "pending" && gateSeq !== null && gateSeq < child.seq) {
+		return { text: `waits on child ${gateSeq}` };
+	}
+	return { text: null };
+}
+
+function ChildCard({
+	child,
+	run,
+	gateSeq,
+	isGate,
+}: {
+	child: PlanRunChildRow;
+	run: RunRow | undefined;
+	gateSeq: number | null;
+	isGate: boolean;
+}) {
+	const prLabel =
+		run?.prUrl !== undefined && run.prUrl !== null ? prNumberFromUrl(run.prUrl) : null;
+	const status = childStatusText(child, gateSeq);
+	const prUrl = run?.prUrl ?? null;
+
+	return (
+		<InventoryRowCard
+			tone={CHILD_CARD_TONE[child.state]}
+			stateLabel={child.state}
+			title={child.seedId}
+			subline={
+				child.runId !== null ? (
+					<Link
+						to={`/runs/${encodeURIComponent(child.runId)}`}
+						className="underline-offset-2 hover:underline"
+					>
+						{child.runId}
+					</Link>
+				) : (
+					"not dispatched"
+				)
+			}
+			figures={
+				<>
+					{prLabel !== null ? <CardFigure value={prLabel} /> : null}
+					{isGate ? <CardFigureNote value="gate" /> : null}
+					{child.retryCount > 0 ? (
+						<CardFigureNote
+							value={`${child.retryCount} retr${child.retryCount === 1 ? "y" : "ies"}`}
+						/>
+					) : null}
+				</>
+			}
+			meta={
+				status.text !== null ? (
+					<span
+						className={child.state === "failed" ? "text-(--color-danger)" : undefined}
+						title={status.title}
+					>
+						{status.text}
+					</span>
+				) : undefined
+			}
+		>
+			{child.state === "pr_open" && prUrl !== null ? (
+				<a
+					href={prUrl}
+					target="_blank"
+					rel="noreferrer noopener"
+					className="flex h-6 shrink-0 items-center rounded-(--radius-sm) border border-(--color-border-strong) bg-(--color-surface) px-[9px] text-[10px] leading-3 font-medium text-(--color-text-2)"
+				>
+					Open PR ↗
+				</a>
+			) : null}
+		</InventoryRowCard>
+	);
+}
+
 function ChildStatus({
 	child,
 	run,
@@ -177,33 +310,24 @@ function ChildStatus({
 }) {
 	// A failed child outranks the timing line: the reason is the evidence
 	// an operator reads first. Raw coordinator text rides the tooltip.
+	const s = childStatusText(child, gateSeq);
 	if (child.state === "failed") {
 		return (
 			<span
 				className="min-w-0 flex-1 truncate font-mono text-[9px] leading-3 text-(--color-danger)"
-				title={child.failureReason ?? undefined}
+				title={s.title}
 			>
-				{child.failureReason === null ? "failed" : formatPlanRunFailureReason(child.failureReason)}
+				{s.text}
 			</span>
 		);
-	}
-
-	let status: string | null = null;
-	if (child.state === "merged") {
-		const at = child.prMergedAt ?? child.endedAt;
-		status = at !== null ? `merged ${relativeTime(at)}` : "merged";
-	} else if (child.state === "pr_open") {
-		status = `open ${relativeTime(child.updatedAt)} · waiting for merge`;
-	} else if (child.state === "pending" && gateSeq !== null && gateSeq < child.seq) {
-		status = `waits on child ${gateSeq}`;
 	}
 
 	const prUrl = run?.prUrl ?? null;
 	return (
 		<>
-			{status !== null ? (
+			{s.text !== null ? (
 				<span className="min-w-0 flex-1 truncate font-mono text-[9px] leading-3 text-(--color-text-3)">
-					{status}
+					{s.text}
 				</span>
 			) : (
 				<div className="min-w-0 flex-1" />
