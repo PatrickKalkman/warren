@@ -165,8 +165,11 @@ jobs:
   # `needs: [release, deploy]` puts this AFTER the image build, so the chain
   # stays draft release → ghcr image → npm publish → promote: an npm version
   # can never exist without its matching ghcr image. The package ships raw
-  # bun-shebang TypeScript (fleet precedent: @os-eco/burrow-cli, mx-be6bc5),
-  # so there is no build step — `npm publish` packs `src/` directly.
+  # bun-shebang TypeScript (fleet precedent: @os-eco/burrow-cli, mx-be6bc5).
+  # The one build step is the UI bundle: `build:ui` bakes `src/ui/dist` into
+  # the tarball (warren-402e), and `check:package-ui` pack-asserts it so a
+  # publish that skipped the build fails loudly instead of shipping an
+  # API-only package.
   # Idempotent: the `npm view` short-circuit no-ops when the version is
   # already on the registry, so a retried run is safe. The package name in
   # the probe is spelled out in full because a wrong name fails open
@@ -191,6 +194,12 @@ jobs:
           bun-version-file: .bun-version
 
       - run: bun install --frozen-lockfile
+
+      - name: Build the UI into the package (warren-402e)
+        run: bun run build:ui
+
+      - name: Smoke gate — pack and assert the UI ships (warren-402e)
+        run: bun run check:package-ui
 
       - name: Publish to npm (idempotent)
         env:

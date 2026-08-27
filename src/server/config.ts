@@ -5,7 +5,8 @@
  *   1. Where the server binds (host + port; or unix socket path).
  *   2. Which database backend warren opens (WARREN_DB_URL contract).
  *   3. The bearer token that protects every route except /healthz.
- *   4. Where the UI's static dist dir is (`src/ui/dist` in dev, `/app/src/ui/dist` in container).
+ *   4. Where the UI's static dist dir is (`src/ui/dist` in dev, `/app/src/ui/dist` in container;
+ *      resolved from the repo cwd OR the npm-installed package layout — warren-402e).
  *   5. The data dir root (joined for default db path).
  *
  * Env contract (all warren-namespaced):
@@ -29,6 +30,7 @@
  * env-readers — this loader only handles server-process concerns.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ValidationError } from "../core/errors.ts";
 import { sqliteUrlForPath } from "../db/url.ts";
@@ -60,7 +62,7 @@ export interface LoadServerConfigOptions {
 	readonly env?: EnvLike;
 	/** Skip token requirement (CLI `--no-auth`). */
 	readonly noAuth?: boolean;
-	/** Default UI dist directory. Falls back to `<cwd>/src/ui/dist`. */
+	/** Default UI dist directory. Falls back to `<cwd>/src/ui/dist` or the module-relative layout. */
 	readonly defaultUiDistDir?: string;
 }
 
@@ -127,5 +129,32 @@ function resolveUiDistDir(env: EnvLike, fallback: string | undefined): string | 
 	const explicit = env.WARREN_UI_DIST_DIR;
 	if (parseTrueEnv(env.WARREN_DISABLE_UI)) return null;
 	if (explicit !== undefined && explicit !== "") return explicit;
-	return fallback ?? join(process.cwd(), "src", "ui", "dist");
+	if (fallback !== undefined) return fallback;
+	return defaultUiDistDir();
+}
+
+/**
+ * Default UI dist resolution (warren-402e, plan pl-26f3 step 1).
+ *
+ * Two layouts can host the built UI:
+ *   1. The repo/container checkout: `<cwd>/src/ui/dist` (after `bun run build:ui`).
+ *   2. The npm-installed package: `@os-eco/warren-cli/src/ui/dist` under a global
+ *      prefix — this file is `src/server/config.ts`, so the dist dir sits at
+ *      `../../ui/dist` relative to it, independent of the user's cwd.
+ *
+ * Prefer the cwd layout (explicit dev/container builds), then the module-relative
+ * one (npm installs where `warren serve` runs from any directory). When neither
+ * exists we still return the cwd path so callers log a useful default.
+ */
+function defaultUiDistDir(): string {
+	return resolveDefaultUiDistDir(process.cwd(), import.meta.dir);
+}
+
+/** Pure core of {@link defaultUiDistDir}, split out for testing. */
+export function resolveDefaultUiDistDir(cwd: string, moduleDir: string): string {
+	const cwdLayout = join(cwd, "src", "ui", "dist");
+	if (existsSync(cwdLayout)) return cwdLayout;
+	const moduleLayout = join(moduleDir, "..", "ui", "dist");
+	if (existsSync(moduleLayout)) return moduleLayout;
+	return cwdLayout;
 }

@@ -1,0 +1,11 @@
+# npm pack reads .npmignore INSTEAD of .gitignore once this file exists, for
+# the whole tree (warren-402e). That is the point: src/ui/dist is a gitignored
+# build artifact but MUST ship in the published tarball, and gitignore rules
+# cannot re-include files under an excluded directory.
+#
+# Consequence: gitignore exclusions under the package.json "files" whitelist
+# no longer apply at pack time. The whitelist is narrow (`src`, minus UI
+# sources, plus `src/ui/dist`) and its only gitignored contents live under
+# src/ui/, which "files" already excludes. If you add a new gitignored build
+# artifact under an included path, add its exclusion HERE so it does not ship.
+!dist/

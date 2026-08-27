@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ValidationError } from "../core/errors.ts";
 import {
 	DEFAULT_BIND_HOST,
 	DEFAULT_BIND_PORT,
 	DEFAULT_DATA_DIR,
 	loadServerConfigFromEnv,
+	resolveDefaultUiDistDir,
 } from "./config.ts";
 
 describe("loadServerConfigFromEnv", () => {
@@ -123,5 +127,46 @@ describe("loadServerConfigFromEnv", () => {
 		expect(() =>
 			loadServerConfigFromEnv({ env: { WARREN_API_TOKEN: "x", WARREN_BIND_PORT: "70000" } }),
 		).toThrow(ValidationError);
+	});
+});
+
+describe("resolveDefaultUiDistDir", () => {
+	test("prefers the cwd layout when src/ui/dist exists there", () => {
+		const root = mkdtempSync(join(tmpdir(), "warren-ui-cwd-"));
+		const other = mkdtempSync(join(tmpdir(), "warren-ui-other-"));
+		try {
+			mkdirSync(join(root, "src", "ui", "dist"), { recursive: true });
+			expect(resolveDefaultUiDistDir(root, other)).toBe(join(root, "src", "ui", "dist"));
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+			rmSync(other, { recursive: true, force: true });
+		}
+	});
+
+	test("falls back to the module-relative npm layout when cwd has no dist", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "warren-ui-empty-cwd-"));
+		const pkgRoot = mkdtempSync(join(tmpdir(), "warren-ui-pkg-"));
+		try {
+			// moduleDir plays src/server: dist sits at <pkgRoot>/src/ui/dist.
+			const moduleDir = join(pkgRoot, "src", "server");
+			mkdirSync(join(pkgRoot, "src", "ui", "dist"), { recursive: true });
+			expect(resolveDefaultUiDistDir(cwd, moduleDir)).toBe(join(pkgRoot, "src", "ui", "dist"));
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+			rmSync(pkgRoot, { recursive: true, force: true });
+		}
+	});
+
+	test("returns the cwd layout when neither exists (useful default for logs)", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "warren-ui-none-"));
+		const pkgRoot = mkdtempSync(join(tmpdir(), "warren-ui-none-pkg-"));
+		try {
+			expect(resolveDefaultUiDistDir(cwd, join(pkgRoot, "src", "server"))).toBe(
+				join(cwd, "src", "ui", "dist"),
+			);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+			rmSync(pkgRoot, { recursive: true, force: true });
+		}
 	});
 });
