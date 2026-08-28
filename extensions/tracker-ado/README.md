@@ -151,6 +151,7 @@ does not retry a 4xx.
 |---|---|---|
 | 404 on the work-item read | `404 issue_not_found` | the one reserved protocol code |
 | 404 anywhere else (a type's states, the close PATCH) | `502 upstream_error` | those calls name a type or a state, not the issue, so a 404 there is Azure DevOps misbehaving |
+| 409 / 412 on the close PATCH, twice | `502 upstream_error` | the revision moved under the close twice in a row; once is re-read and retried |
 | 2xx with a payload missing the id, state or list the call reads | `502 upstream_error` | a proxy or a changed API answered; passing it on would read as an empty status |
 | an id that is not a number | `404 issue_not_found`, without a call | no work item can have it; Azure DevOps would answer 400 |
 | 401 / 403 | `502 upstream_unauthorized` | **this container's** credential was rejected. Passing 401 through would send an operator to warren's bearer, the wrong secret |

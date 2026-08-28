@@ -21,7 +21,7 @@
 
 import { AdoApiError, type AdoClient } from "./ado/client.ts";
 import { isTerminal, parseWorkItemId, pickCloseState, toIssueResponse } from "./ado/map.ts";
-import type { AdoWorkItem } from "./ado/types.ts";
+import type { AdoWorkItem, AdoWorkItemTypeState } from "./ado/types.ts";
 import type { AdoTrackerConfig } from "./config.ts";
 import type { RemoteIssueResponse } from "./protocol.ts";
 import { TRACKER_ISSUE_NOT_FOUND_CODE } from "./protocol.ts";
@@ -110,6 +110,13 @@ export async function readStatuses(client: AdoClient): Promise<Record<string, st
  * is not a terminal state of the type, is a configuration answer rather
  * than a transient failure, so it surfaces as 409. Warren does not retry
  * a 4xx.
+ *
+ * The state change names the revision the decision was made on. When
+ * someone edited the work item in between, Azure DevOps refuses it, and
+ * close re-reads the item once: an edit that made it terminal (a board
+ * user removed it, say) is honored as is, any other edit gets the state
+ * change again on the fresh revision. A second refusal surfaces as the
+ * upstream failure it is.
  */
 export async function closeIssue(
 	client: AdoClient,
@@ -124,11 +131,30 @@ export async function closeIssue(
 
 		const target = pickCloseState(states, config.doneState);
 		if (target === undefined) throw noCloseState(config.doneState, type, key);
-		const closed = await client.setState(current.id, target);
+		const closed = await moveIntoState(client, current, states, target);
 		return toIssueResponse(closed, config.blockedByLink);
 	} catch (err) {
 		if (err instanceof TrackerOperationError) throw err;
 		throw toTrackerError(err);
+	}
+}
+
+/** The statuses Azure DevOps answers when the patch's revision test fails. */
+const REVISION_CONFLICT_STATUSES: ReadonlySet<number> = new Set([409, 412]);
+
+async function moveIntoState(
+	client: AdoClient,
+	current: AdoWorkItem,
+	states: readonly AdoWorkItemTypeState[],
+	target: string,
+): Promise<AdoWorkItem> {
+	try {
+		return await client.setState(current, target);
+	} catch (err) {
+		if (!(err instanceof AdoApiError) || !REVISION_CONFLICT_STATUSES.has(err.status)) throw err;
+		const fresh = await client.getWorkItem(current.id);
+		if (isTerminal(fresh, states)) return fresh;
+		return client.setState(fresh, target);
 	}
 }
 

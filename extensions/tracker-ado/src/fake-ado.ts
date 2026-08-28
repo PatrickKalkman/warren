@@ -9,10 +9,9 @@
  * transport seam with no socket in the way.
  *
  * The payload shapes are transcribed from Microsoft's documented 7.1
- * responses. That is exactly the assumption this package cannot verify
- * without a real organization, so treat FakeAdo as a statement of what
- * this tracker EXPECTS Azure DevOps to return, and the first live run
- * against a real project as the thing that confirms or corrects it.
+ * responses and checked against a real organization (README, "Verified
+ * live"). FakeAdo is a statement of what this tracker expects Azure
+ * DevOps to return; a live run is what confirms or corrects it.
  */
 
 import { json } from "./responses.ts";
@@ -29,6 +28,8 @@ export interface FakeAdoWorkItem {
 	state: string;
 	/** Ids of the work items that block this one (its predecessors). */
 	blockedBy?: number[];
+	/** Revision number; starts at 1 and moves on every patch. */
+	rev?: number;
 }
 
 export interface FakeAdoState {
@@ -42,6 +43,12 @@ export interface FakeAdoOptions {
 	readonly states?: readonly FakeAdoState[];
 	/** Fail calls with this status, for the error-mapping tests. */
 	readonly failWith?: FakeAdoFailure;
+	/**
+	 * Runs before each request is routed, with the live items. A test
+	 * plays a concurrent editor with it: change an item when the PATCH
+	 * arrives and the revision the patch names is stale.
+	 */
+	readonly onRequest?: (call: string, items: Map<number, FakeAdoWorkItem>) => void;
 }
 
 export interface FakeAdoFailure {
@@ -81,7 +88,7 @@ function adoError(message: string, status: number, headers: Record<string, strin
 function workItemBody(item: FakeAdoWorkItem, origin: string): unknown {
 	return {
 		id: item.id,
-		rev: 1,
+		rev: item.rev ?? 1,
 		fields: {
 			"System.Id": item.id,
 			"System.WorkItemType": item.type,
@@ -140,6 +147,14 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 
 	async function patchItem(item: FakeAdoWorkItem, request: FakeRequest): Promise<Response> {
 		const ops = await readBody<{ op?: string; path?: string; value?: unknown }[]>(request.init);
+		const revTest = ops.find((op) => op.op === "test" && op.path === "/rev");
+		if (revTest !== undefined && revTest.value !== (item.rev ?? 1)) {
+			return adoError(
+				`VS403351: The work item ${item.id} has been changed since revision ${String(revTest.value)}`,
+				409,
+			);
+		}
+		item.rev = (item.rev ?? 1) + 1;
 		for (const op of ops) {
 			if (op.path !== "/fields/System.State") continue;
 			const target = states.find((s) => s.name === op.value);
@@ -169,7 +184,9 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 		if (ids.length > 200) return adoError("VS403474: You requested more than 200 ids", 400);
 		const found = ids.flatMap((id) => {
 			const item = items.get(id);
-			return item === undefined ? [] : [{ id, fields: { "System.State": item.state } }];
+			return item === undefined
+				? []
+				: [{ id, rev: item.rev ?? 1, fields: { "System.State": item.state } }];
 		});
 		return json({ count: found.length, value: found });
 	}
@@ -196,6 +213,7 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 		const method = init?.method ?? "GET";
 		const call = `${method} ${url.pathname}`;
 		calls.push(call);
+		options.onRequest?.(call, items);
 		const failWith = options.failWith;
 		if (failWith !== undefined && (failWith.only?.test(call) ?? true)) return failure(failWith);
 		return route({ method, url, init });

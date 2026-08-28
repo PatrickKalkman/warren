@@ -29,8 +29,9 @@ export function parseWorkItemId(raw: string): number | undefined {
 	return Number.isSafeInteger(id) ? id : undefined;
 }
 
-const BLOCK_END = /<\/(?:p|div|li|h[1-6]|tr|blockquote|pre)\s*>|<br\s*\/?>/gi;
-const TAG = /<[^>]+>/g;
+const BLOCK_END = /<\/(?:p|div|li|h[1-6]|tr|blockquote|pre)\s*>|<br\b[^>]*>/gi;
+/** A tag, with a `>` inside a quoted attribute value still part of it. */
+const TAG = /<(?:[^'">]|"[^"]*"|'[^']*')*>/g;
 const NAMED_ENTITIES: Readonly<Record<string, string>> = {
 	amp: "&",
 	lt: "<",

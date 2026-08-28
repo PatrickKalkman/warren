@@ -21,6 +21,7 @@ function workItem(
 ): AdoWorkItem {
 	return {
 		id: 7,
+		rev: 1,
 		fields: { "System.State": "Active", ...fields },
 		...(relations !== undefined ? { relations } : {}),
 	};
@@ -45,6 +46,16 @@ describe("htmlToText", () => {
 
 	test("honors line breaks and collapses runs of blank lines", () => {
 		expect(htmlToText("<p>A</p><p><br></p><p><br/></p><p>B</p>")).toBe("A\n\nB");
+	});
+
+	test("reads a line break that carries attributes", () => {
+		expect(htmlToText('A<br class="x">B<br data-x="1"/>C')).toBe("A\nB\nC");
+	});
+
+	test("keeps a quoted > inside an attribute from ending the tag early", () => {
+		expect(htmlToText('<a href="?a>b" title=\'>\'>link</a> <img alt="x>y">after')).toBe(
+			"link after",
+		);
 	});
 
 	test("trims the padding azure devops adds between closing tags when it saves", () => {

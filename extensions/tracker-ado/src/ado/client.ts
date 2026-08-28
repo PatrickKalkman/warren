@@ -131,10 +131,18 @@ export class AdoClient {
 		return states;
 	}
 
-	/** Moves the work item to `state` and returns it as Azure DevOps now holds it. */
-	async setState(id: number, state: string): Promise<AdoWorkItem> {
-		const path = this.witPath(`/workitems/${id}`);
-		const patch = [{ op: "add", path: `/fields/${STATE_FIELD}`, value: state }];
+	/**
+	 * Moves the work item to `state` and returns it as Azure DevOps now
+	 * holds it. The patch names the revision it was decided against, so a
+	 * work item edited in between answers with a conflict rather than
+	 * taking a state change based on a view that is no longer true.
+	 */
+	async setState(item: AdoWorkItem, state: string): Promise<AdoWorkItem> {
+		const path = this.witPath(`/workitems/${item.id}`);
+		const patch = [
+			{ op: "test", path: "/rev", value: item.rev },
+			{ op: "add", path: `/fields/${STATE_FIELD}`, value: state },
+		];
 		return requireWorkItem(
 			await this.request("PATCH", path, patch, "application/json-patch+json"),
 			`PATCH ${path}`,
@@ -211,9 +219,9 @@ function requireArray(value: unknown, what: string, field: string): unknown[] {
 }
 
 /**
- * A work item is one only with the id and state every operation reads.
- * The other fields stay optional, because a process template decides
- * which of them exist.
+ * A work item is one only with the id, revision and state every
+ * operation reads. The other fields stay optional, because a process
+ * template decides which of them exist.
  */
 function requireWorkItem(body: unknown, what: string): AdoWorkItem {
 	const item = requireObject(body, what);
@@ -222,8 +230,8 @@ function requireWorkItem(body: unknown, what: string): AdoWorkItem {
 		fields !== null && typeof fields === "object"
 			? (fields as Record<string, unknown>)[STATE_FIELD]
 			: undefined;
-	if (typeof item.id !== "number" || typeof state !== "string") {
-		throw malformed(what, `a work item without a numeric id and a ${STATE_FIELD}`);
+	if (typeof item.id !== "number" || typeof item.rev !== "number" || typeof state !== "string") {
+		throw malformed(what, `a work item without a numeric id, a rev and a ${STATE_FIELD}`);
 	}
 	return item as unknown as AdoWorkItem;
 }

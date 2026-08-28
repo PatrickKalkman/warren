@@ -35,6 +35,8 @@ export interface AdoRelation {
 
 export interface AdoWorkItem {
 	readonly id: number;
+	/** The revision number; a state change names it so a concurrent edit is refused. */
+	readonly rev: number;
 	readonly fields: AdoWorkItemFields;
 	readonly relations?: readonly AdoRelation[];
 }

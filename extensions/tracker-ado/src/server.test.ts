@@ -204,6 +204,58 @@ describe("POST /issues/{id}/close", () => {
 		});
 	});
 
+	test("honors an edit that made the work item terminal while the close was deciding", async () => {
+		const { ado, call } = harness({
+			onRequest: (request, items) => {
+				const item = items.get(96379);
+				if (request.startsWith("PATCH") && item !== undefined && item.state === "New") {
+					item.state = "Removed";
+					item.rev = 2;
+				}
+			},
+		});
+		const response = await call("POST", "/issues/96379/close");
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ id: "96379", status: "Removed" });
+		expect(ado.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(1);
+	});
+
+	test("retries the close once on the fresh revision after an unrelated concurrent edit", async () => {
+		let edited = false;
+		const { ado, call } = harness({
+			onRequest: (request, items) => {
+				const item = items.get(96379);
+				if (request.startsWith("PATCH") && item !== undefined && !edited) {
+					item.title = "Retitled";
+					item.rev = 2;
+					edited = true;
+				}
+			},
+		});
+		const response = await call("POST", "/issues/96379/close");
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			id: "96379",
+			status: "Closed",
+			title: "Retitled",
+		});
+		expect(ado.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(2);
+	});
+
+	test("gives up as an upstream failure when the revision moves twice", async () => {
+		const { ado, call } = harness({
+			onRequest: (request, items) => {
+				const item = items.get(96379);
+				if (request.startsWith("PATCH") && item !== undefined) item.rev = (item.rev ?? 1) + 1;
+			},
+		});
+		const response = await call("POST", "/issues/96379/close");
+		expect(response.status).toBe(502);
+		expect((await response.json()) as unknown).toMatchObject({ error: { code: "upstream_error" } });
+		expect(ado.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(2);
+		expect(ado.items.get(96379)?.state).toBe("New");
+	});
+
 	test("reports a 404 past the work-item read as an upstream failure, not a missing issue", async () => {
 		for (const only of [/\/workitemtypes\/[^/]+\/states$/, /^PATCH /]) {
 			const { call } = harness({ failWith: { status: 404, only } });

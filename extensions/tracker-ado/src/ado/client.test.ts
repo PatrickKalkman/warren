@@ -50,7 +50,7 @@ const BASE = {
 };
 
 function workItem(id: number, state = "New"): Response {
-	return json({ id, fields: { "System.State": state } });
+	return json({ id, rev: 3, fields: { "System.State": state } });
 }
 
 async function failureOf(run: (client: AdoClient) => Promise<unknown>, fetchImpl: typeof fetch) {
@@ -85,12 +85,14 @@ describe("AdoClient request shape", () => {
 		);
 	});
 
-	test("moves state with a JSON patch document under its own content type", async () => {
+	test("moves state with a JSON patch document that names the revision it was decided on", async () => {
 		const { fetchImpl, requests } = recordingFetch(() => workItem(42, "Closed"));
-		await new AdoClient(loadConfig(BASE), fetchImpl).setState(42, "Closed");
+		const item = { id: 42, rev: 7, fields: { "System.State": "New" } };
+		await new AdoClient(loadConfig(BASE), fetchImpl).setState(item, "Closed");
 		expect(requests[0]?.method).toBe("PATCH");
 		expect(requests[0]?.headers["content-type"]).toBe("application/json-patch+json");
 		expect(JSON.parse(requests[0]?.body ?? "")).toEqual([
+			{ op: "test", path: "/rev", value: 7 },
 			{ op: "add", path: "/fields/System.State", value: "Closed" },
 		]);
 	});
@@ -105,7 +107,7 @@ describe("AdoClient.issueStatuses", () => {
 			const ids = (JSON.parse(request.body ?? "{}") as { ids: number[] }).ids;
 			return json({
 				count: ids.length,
-				value: ids.map((id) => ({ id, fields: { "System.State": `S${id}` } })),
+				value: ids.map((id) => ({ id, rev: 1, fields: { "System.State": `S${id}` } })),
 			});
 		});
 		const client = new AdoClient(loadConfig({ ...BASE, ADO_BATCH_SIZE: "2" }), fetchImpl);
@@ -244,14 +246,27 @@ describe("AdoClient response handling", () => {
 
 describe("AdoClient malformed 2xx payloads", () => {
 	const cases: [string, unknown, (client: AdoClient) => Promise<unknown>][] = [
-		["a work item without an id", { fields: { "System.State": "New" } }, (c) => c.getWorkItem(9)],
-		["a work item without a state", { id: 9, fields: {} }, (c) => c.getWorkItem(9)],
 		[
-			"a work item whose state is not text",
-			{ id: 9, fields: { "System.State": 1 } },
+			"a work item without an id",
+			{ rev: 1, fields: { "System.State": "New" } },
 			(c) => c.getWorkItem(9),
 		],
-		["a patched item without a state", { id: 9 }, (c) => c.setState(9, "Closed")],
+		[
+			"a work item without a rev",
+			{ id: 9, fields: { "System.State": "New" } },
+			(c) => c.getWorkItem(9),
+		],
+		["a work item without a state", { id: 9, rev: 1, fields: {} }, (c) => c.getWorkItem(9)],
+		[
+			"a work item whose state is not text",
+			{ id: 9, rev: 1, fields: { "System.State": 1 } },
+			(c) => c.getWorkItem(9),
+		],
+		[
+			"a patched item without a state",
+			{ id: 9, rev: 2 },
+			(c) => c.setState({ id: 9, rev: 1, fields: { "System.State": "New" } }, "Closed"),
+		],
 		["a query answer without workItems", { queryType: "flat" }, (c) => c.issueStatuses()],
 		[
 			"a query answer whose workItems is not a list",
@@ -281,7 +296,7 @@ describe("AdoClient malformed 2xx payloads", () => {
 		const { fetchImpl } = recordingFetch((request) =>
 			request.url.includes("/wiql")
 				? json({ queryType: "flat", workItems: [{ id: 1 }] })
-				: json({ count: 1, value: [{ id: 1 }] }),
+				: json({ count: 1, value: [{ id: 1, rev: 1 }] }),
 		);
 		const failure = await failureOf((client) => client.issueStatuses(), fetchImpl);
 		expect(failure.status).toBe(502);
