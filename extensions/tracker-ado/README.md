@@ -151,7 +151,7 @@ does not retry a 4xx.
 |---|---|---|
 | 404 on the work-item read | `404 issue_not_found` | the one reserved protocol code |
 | 404 anywhere else (a type's states, the close PATCH) | `502 upstream_error` | those calls name a type or a state, not the issue, so a 404 there is Azure DevOps misbehaving |
-| 409 / 412 on the close PATCH, twice | `502 upstream_error` | the revision moved under the close twice in a row; once is re-read and retried |
+| 412 on the close PATCH, twice | `502 upstream_error` | the revision moved under the close twice in a row; once is re-read and retried |
 | 2xx with a payload missing the id, state or list the call reads | `502 upstream_error` | a proxy or a changed API answered; passing it on would read as an empty status |
 | an id that is not a number | `404 issue_not_found`, without a call | no work item can have it; Azure DevOps would answer 400 |
 | 401 / 403 | `502 upstream_unauthorized` | **this container's** credential was rejected. Passing 401 through would send an operator to warren's bearer, the wrong secret |
@@ -219,6 +219,10 @@ moved to `Closed` beforehand. What it established:
   assumes, so `blockedBy` carries the story's id.
 - `POST /issues/{id}/close` moves a `New` Task straight to `Closed`, and
   on an already-`Closed` Bug it makes no PATCH and returns the item.
+- Every work item payload, the batch read included, carries `rev`. A
+  PATCH whose `test` op names a stale `/rev` answers **412** with
+  `VS403351 TestPatchOperationFailedException`, which is the status the
+  close path re-reads and retries on.
 - A bad PAT never arrives as a 401. Both `dev.azure.com/{org}` and
   `{org}.visualstudio.com` answer 302 to a sign-in page, which `fetch`
   follows into a 203 with `text/html`. The tracker reports it as 502

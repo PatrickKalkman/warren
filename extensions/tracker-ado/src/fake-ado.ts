@@ -150,8 +150,8 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 		const revTest = ops.find((op) => op.op === "test" && op.path === "/rev");
 		if (revTest !== undefined && revTest.value !== (item.rev ?? 1)) {
 			return adoError(
-				`VS403351: The work item ${item.id} has been changed since revision ${String(revTest.value)}`,
-				409,
+				`VS403351: Test Operation for path /rev failed, value ${item.rev ?? 1} was not equal to test value ${String(revTest.value)}.`,
+				412,
 			);
 		}
 		item.rev = (item.rev ?? 1) + 1;

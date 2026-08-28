@@ -139,8 +139,8 @@ export async function closeIssue(
 	}
 }
 
-/** The statuses Azure DevOps answers when the patch's revision test fails. */
-const REVISION_CONFLICT_STATUSES: ReadonlySet<number> = new Set([409, 412]);
+/** What Azure DevOps answers when the patch's revision test fails (VS403351). */
+const REVISION_CONFLICT_STATUS = 412;
 
 async function moveIntoState(
 	client: AdoClient,
@@ -151,7 +151,7 @@ async function moveIntoState(
 	try {
 		return await client.setState(current, target);
 	} catch (err) {
-		if (!(err instanceof AdoApiError) || !REVISION_CONFLICT_STATUSES.has(err.status)) throw err;
+		if (!(err instanceof AdoApiError) || err.status !== REVISION_CONFLICT_STATUS) throw err;
 		const fresh = await client.getWorkItem(current.id);
 		if (isTerminal(fresh, states)) return fresh;
 		return client.setState(fresh, target);
