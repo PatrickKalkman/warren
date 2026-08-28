@@ -33,8 +33,10 @@ export class AdoApiError extends Error {
 	}
 }
 
-/** The one field the status map needs. */
 const STATE_FIELD = "System.State";
+const TYPE_FIELD = "System.WorkItemType";
+/** What the status map needs: the state, and the type whose process defines it. */
+const STATUS_FIELDS = [STATE_FIELD, TYPE_FIELD];
 
 export class AdoClient {
 	private readonly config: AdoTrackerConfig;
@@ -58,8 +60,8 @@ export class AdoClient {
 	}
 
 	/**
-	 * The raw `id -> state` map for every work item the configured WIQL
-	 * selects. WIQL answers with ids only, so the states come from a batch
+	 * Every work item the configured WIQL selects, with its state and its
+	 * type only. WIQL answers with ids, so the fields come from a batch
 	 * read afterwards, at most 200 ids per call.
 	 *
 	 * `maxWiqlResults` is the backstop against a query that selects the
@@ -67,23 +69,22 @@ export class AdoClient {
 	 * result past the cap throws rather than truncating: a silently short
 	 * status map would read to warren as issues that vanished.
 	 */
-	async issueStatuses(): Promise<Record<string, string>> {
+	async queryWorkItems(): Promise<AdoWorkItem[]> {
 		const ids = await this.queryIds();
-		const statuses: Record<string, string> = {};
+		const items: AdoWorkItem[] = [];
 		for (let start = 0; start < ids.length; start += this.config.batchSize) {
 			const chunk = ids.slice(start, start + this.config.batchSize);
 			const path = this.witPath("/workitemsbatch");
 			const what = `POST ${path}`;
 			const body = requireObject(
-				await this.request("POST", path, { ids: chunk, fields: [STATE_FIELD] }),
+				await this.request("POST", path, { ids: chunk, fields: STATUS_FIELDS }),
 				what,
 			);
 			for (const entry of requireArray(body.value, what, "value")) {
-				const item = requireWorkItem(entry, what);
-				statuses[String(item.id)] = item.fields[STATE_FIELD];
+				items.push(requireWorkItem(entry, what));
 			}
 		}
-		return statuses;
+		return items;
 	}
 
 	/**

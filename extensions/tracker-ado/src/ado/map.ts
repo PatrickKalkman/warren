@@ -3,15 +3,18 @@
  * about every field: these values crossed an HTTP boundary.
  *
  * The one rule worth stating twice is the status rule. `status` on the
- * wire is the RAW `System.State` ("New", "Active", "Closed", whatever
- * the process calls it). Warren normalizes to its own three-state
- * vocabulary at its bridge, and a server that pre-normalizes would be
- * answering a question it was not asked.
+ * wire is warren's `open | closed | other`, never the raw `System.State`.
+ * A process names its states however it likes ("New", "Active", "Done",
+ * "Closed"), and warren's bridge folds every spelling it does not know
+ * to `other`, so the fold has to happen here, where the state's category
+ * is known: `Proposed` is open, `Completed` and `Removed` are closed, and
+ * `InProgress` and `Resolved` are neither.
  */
 
-import type { RemoteIssueResponse } from "../protocol.ts";
+import type { IssueStatus, RemoteIssueResponse } from "../protocol.ts";
 import {
 	ADO_COMPLETED_CATEGORY,
+	ADO_PROPOSED_CATEGORY,
 	ADO_REMOVED_CATEGORY,
 	type AdoRelation,
 	type AdoWorkItem,
@@ -127,6 +130,31 @@ function stateName(item: AdoWorkItem): string {
 	return item.fields["System.State"];
 }
 
+/** The category the process files the work item's current state under. */
+function stateCategory(
+	item: AdoWorkItem,
+	states: readonly AdoWorkItemTypeState[],
+): string | undefined {
+	const current = stateName(item).trim().toLowerCase();
+	return states.find((s) => s.name?.trim().toLowerCase() === current)?.category;
+}
+
+/**
+ * The work item's state on warren's three-state vocabulary. `Proposed`
+ * is the only category warren may claim from. A state the process does
+ * not define at all is `other` as well: it cannot be shown closed, and
+ * claiming it would be a guess.
+ */
+export function issueStatus(
+	item: AdoWorkItem,
+	states: readonly AdoWorkItemTypeState[],
+): IssueStatus {
+	const category = stateCategory(item, states);
+	if (isTerminalCategory(category)) return "closed";
+	if (category === ADO_PROPOSED_CATEGORY) return "open";
+	return "other";
+}
+
 /**
  * True when the process considers the state terminal, whatever it is
  * called. Both `Completed` and `Removed` count: a removed work item is
@@ -134,21 +162,24 @@ function stateName(item: AdoWorkItem): string {
  * decision someone made on the board.
  */
 export function isTerminal(item: AdoWorkItem, states: readonly AdoWorkItemTypeState[]): boolean {
-	const current = stateName(item).trim().toLowerCase();
-	return isTerminalCategory(states.find((s) => s.name?.trim().toLowerCase() === current)?.category);
+	return isTerminalCategory(stateCategory(item, states));
 }
 
 function isTerminalCategory(category: string | undefined): boolean {
 	return category === ADO_COMPLETED_CATEGORY || category === ADO_REMOVED_CATEGORY;
 }
 
-export function toIssueResponse(item: AdoWorkItem, linkType: string): RemoteIssueResponse {
+export function toIssueResponse(
+	item: AdoWorkItem,
+	states: readonly AdoWorkItemTypeState[],
+	linkType: string,
+): RemoteIssueResponse {
 	const title = item.fields["System.Title"] ?? undefined;
 	const description = describeWorkItem(item);
 	const blockedBy = blockedByIds(item.relations, linkType);
 	return {
 		id: String(item.id),
-		status: stateName(item),
+		status: issueStatus(item, states),
 		...(typeof title === "string" && title.length > 0 ? { title } : {}),
 		...(description !== undefined ? { description } : {}),
 		...(blockedBy.length > 0 ? { blockedBy } : {}),

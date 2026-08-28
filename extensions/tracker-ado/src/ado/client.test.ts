@@ -98,8 +98,8 @@ describe("AdoClient request shape", () => {
 	});
 });
 
-describe("AdoClient.issueStatuses", () => {
-	test("queries ids with WIQL, then reads states in batches of the configured size", async () => {
+describe("AdoClient.queryWorkItems", () => {
+	test("queries ids with WIQL, then reads state and type in batches of the configured size", async () => {
 		const { fetchImpl, requests } = recordingFetch((request) => {
 			if (request.url.includes("/wiql")) {
 				return json({ queryType: "flat", workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] });
@@ -107,25 +107,36 @@ describe("AdoClient.issueStatuses", () => {
 			const ids = (JSON.parse(request.body ?? "{}") as { ids: number[] }).ids;
 			return json({
 				count: ids.length,
-				value: ids.map((id) => ({ id, rev: 1, fields: { "System.State": `S${id}` } })),
+				value: ids.map((id) => ({
+					id,
+					rev: 1,
+					fields: { "System.State": `S${id}`, "System.WorkItemType": "Bug" },
+				})),
 			});
 		});
 		const client = new AdoClient(loadConfig({ ...BASE, ADO_BATCH_SIZE: "2" }), fetchImpl);
-		expect(await client.issueStatuses()).toEqual({ "1": "S1", "2": "S2", "3": "S3" });
+		expect(await client.queryWorkItems()).toEqual([
+			{ id: 1, rev: 1, fields: { "System.State": "S1", "System.WorkItemType": "Bug" } },
+			{ id: 2, rev: 1, fields: { "System.State": "S2", "System.WorkItemType": "Bug" } },
+			{ id: 3, rev: 1, fields: { "System.State": "S3", "System.WorkItemType": "Bug" } },
+		]);
 		expect(requests.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
 			"POST /acme/Team%20Project/_apis/wit/wiql",
 			"POST /acme/Team%20Project/_apis/wit/workitemsbatch",
 			"POST /acme/Team%20Project/_apis/wit/workitemsbatch",
 		]);
 		expect(JSON.parse(requests[0]?.body ?? "")).toEqual({ query: BASE.ADO_WIQL });
-		expect(JSON.parse(requests[1]?.body ?? "")).toEqual({ ids: [1, 2], fields: ["System.State"] });
+		expect(JSON.parse(requests[1]?.body ?? "")).toEqual({
+			ids: [1, 2],
+			fields: ["System.State", "System.WorkItemType"],
+		});
 	});
 
-	test("answers an empty map without a batch read when the query selects nothing", async () => {
+	test("answers an empty list without a batch read when the query selects nothing", async () => {
 		const { fetchImpl, requests } = recordingFetch(() =>
 			json({ queryType: "flat", workItems: [] }),
 		);
-		expect(await new AdoClient(loadConfig(BASE), fetchImpl).issueStatuses()).toEqual({});
+		expect(await new AdoClient(loadConfig(BASE), fetchImpl).queryWorkItems()).toEqual([]);
 		expect(requests).toHaveLength(1);
 	});
 
@@ -134,7 +145,7 @@ describe("AdoClient.issueStatuses", () => {
 			json({ queryType: "flat", workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] }),
 		);
 		const client = new AdoClient(loadConfig({ ...BASE, ADO_MAX_WIQL_RESULTS: "2" }), fetchImpl);
-		await expect(client.issueStatuses()).rejects.toThrow(/ADO_MAX_WIQL_RESULTS/);
+		await expect(client.queryWorkItems()).rejects.toThrow(/ADO_MAX_WIQL_RESULTS/);
 		expect(new URL(requests[0]?.url ?? "").searchParams.get("$top")).toBe("3");
 	});
 
@@ -142,7 +153,7 @@ describe("AdoClient.issueStatuses", () => {
 		const { fetchImpl, requests } = recordingFetch(() =>
 			json({ queryType: "tree", workItemRelations: [{ target: { id: 1 } }] }),
 		);
-		const failure = await failureOf((client) => client.issueStatuses(), fetchImpl);
+		const failure = await failureOf((client) => client.queryWorkItems(), fetchImpl);
 		expect(failure.status).toBe(502);
 		expect(failure.message).toContain('"tree"');
 		expect(requests).toHaveLength(1);
@@ -267,16 +278,16 @@ describe("AdoClient malformed 2xx payloads", () => {
 			{ id: 9, rev: 2 },
 			(c) => c.setState({ id: 9, rev: 1, fields: { "System.State": "New" } }, "Closed"),
 		],
-		["a query answer without workItems", { queryType: "flat" }, (c) => c.issueStatuses()],
+		["a query answer without workItems", { queryType: "flat" }, (c) => c.queryWorkItems()],
 		[
 			"a query answer whose workItems is not a list",
 			{ queryType: "flat", workItems: {} },
-			(c) => c.issueStatuses(),
+			(c) => c.queryWorkItems(),
 		],
 		[
 			"a query entry without an id",
 			{ queryType: "flat", workItems: [{ url: "x" }] },
-			(c) => c.issueStatuses(),
+			(c) => c.queryWorkItems(),
 		],
 		["a states answer without value", { count: 0 }, (c) => c.states("Bug")],
 		["a states answer whose value is not a list", { value: "Closed" }, (c) => c.states("Bug")],
@@ -298,7 +309,7 @@ describe("AdoClient malformed 2xx payloads", () => {
 				? json({ queryType: "flat", workItems: [{ id: 1 }] })
 				: json({ count: 1, value: [{ id: 1, rev: 1 }] }),
 		);
-		const failure = await failureOf((client) => client.issueStatuses(), fetchImpl);
+		const failure = await failureOf((client) => client.queryWorkItems(), fetchImpl);
 		expect(failure.status).toBe(502);
 		expect(failure.message).toContain("System.State");
 	});

@@ -20,10 +20,16 @@
  */
 
 import { AdoApiError, type AdoClient } from "./ado/client.ts";
-import { isTerminal, parseWorkItemId, pickCloseState, toIssueResponse } from "./ado/map.ts";
+import {
+	issueStatus,
+	isTerminal,
+	parseWorkItemId,
+	pickCloseState,
+	toIssueResponse,
+} from "./ado/map.ts";
 import type { AdoWorkItem, AdoWorkItemTypeState } from "./ado/types.ts";
 import type { AdoTrackerConfig } from "./config.ts";
-import type { RemoteIssueResponse } from "./protocol.ts";
+import type { IssueStatus, RemoteIssueResponse } from "./protocol.ts";
 import { TRACKER_ISSUE_NOT_FOUND_CODE } from "./protocol.ts";
 
 /** A failure already shaped for the wire. */
@@ -82,18 +88,40 @@ async function readWorkItem(client: AdoClient, key: string): Promise<AdoWorkItem
 	}
 }
 
+/**
+ * The states the work item's type defines. The type's spelling is the
+ * process's own, so it is passed through as read; a work item without
+ * one is not something Azure DevOps produces.
+ */
+function statesOf(client: AdoClient, item: AdoWorkItem): Promise<readonly AdoWorkItemTypeState[]> {
+	return client.states(item.fields["System.WorkItemType"] ?? "");
+}
+
 export async function readIssue(
 	client: AdoClient,
 	config: AdoTrackerConfig,
 	key: string,
 ): Promise<RemoteIssueResponse> {
 	const item = await readWorkItem(client, key);
-	return toIssueResponse(item, config.blockedByLink);
+	try {
+		return toIssueResponse(item, await statesOf(client, item), config.blockedByLink);
+	} catch (err) {
+		throw toTrackerError(err);
+	}
 }
 
-export async function readStatuses(client: AdoClient): Promise<Record<string, string>> {
+/**
+ * The status map. Each work item's state is folded through its type's
+ * states, which the client caches, so a map over N types costs N state
+ * lookups once and then only the query and the batch reads.
+ */
+export async function readStatuses(client: AdoClient): Promise<Record<string, IssueStatus>> {
 	try {
-		return await client.issueStatuses();
+		const statuses: Record<string, IssueStatus> = {};
+		for (const item of await client.queryWorkItems()) {
+			statuses[String(item.id)] = issueStatus(item, await statesOf(client, item));
+		}
+		return statuses;
 	} catch (err) {
 		throw toTrackerError(err);
 	}
@@ -124,15 +152,18 @@ export async function closeIssue(
 	key: string,
 ): Promise<RemoteIssueResponse> {
 	const current = await readWorkItem(client, key);
-	const type = current.fields["System.WorkItemType"] ?? "";
 	try {
-		const states = await client.states(type);
-		if (isTerminal(current, states)) return toIssueResponse(current, config.blockedByLink);
+		const states = await statesOf(client, current);
+		if (isTerminal(current, states)) {
+			return toIssueResponse(current, states, config.blockedByLink);
+		}
 
 		const target = pickCloseState(states, config.doneState);
-		if (target === undefined) throw noCloseState(config.doneState, type, key);
+		if (target === undefined) {
+			throw noCloseState(config.doneState, current.fields["System.WorkItemType"] ?? "", key);
+		}
 		const closed = await moveIntoState(client, current, states, target);
-		return toIssueResponse(closed, config.blockedByLink);
+		return toIssueResponse(closed, states, config.blockedByLink);
 	} catch (err) {
 		if (err instanceof TrackerOperationError) throw err;
 		throw toTrackerError(err);

@@ -4,6 +4,7 @@ import {
 	blockedByIds,
 	describeWorkItem,
 	htmlToText,
+	issueStatus,
 	isTerminal,
 	parseWorkItemId,
 	pickCloseState,
@@ -145,6 +146,39 @@ describe("blockedByIds", () => {
 	});
 });
 
+describe("issueStatus", () => {
+	test("folds every state category onto warren's three-state vocabulary", () => {
+		expect(issueStatus(workItem({ "System.State": "New" }), AGILE)).toBe("open");
+		expect(issueStatus(workItem({ "System.State": "Active" }), AGILE)).toBe("other");
+		expect(issueStatus(workItem({ "System.State": "Resolved" }), AGILE)).toBe("other");
+		expect(issueStatus(workItem({ "System.State": "Closed" }), AGILE)).toBe("closed");
+		expect(issueStatus(workItem({ "System.State": "Removed" }), AGILE)).toBe("closed");
+	});
+
+	test("goes by the category, not the name, so a Scrum 'Done' is closed too", () => {
+		const scrum = [
+			{ name: "New", category: "Proposed" },
+			{ name: "Approved", category: "Proposed" },
+			{ name: "Committed", category: "InProgress" },
+			{ name: "Done", category: "Completed" },
+		];
+		expect(issueStatus(workItem({ "System.State": "Done" }), scrum)).toBe("closed");
+		expect(issueStatus(workItem({ "System.State": "Approved" }), scrum)).toBe("open");
+		expect(issueStatus(workItem({ "System.State": "Committed" }), scrum)).toBe("other");
+	});
+
+	test("matches the state name case-insensitively", () => {
+		expect(issueStatus(workItem({ "System.State": "closed" }), AGILE)).toBe("closed");
+		expect(issueStatus(workItem({ "System.State": " NEW " }), AGILE)).toBe("open");
+	});
+
+	test("answers other for a state the process does not define, never open", () => {
+		expect(issueStatus(workItem({ "System.State": "Mystery" }), AGILE)).toBe("other");
+		expect(issueStatus(workItem({ "System.State": "" }), AGILE)).toBe("other");
+		expect(issueStatus(workItem({ "System.State": "New" }), [])).toBe("other");
+	});
+});
+
 describe("isTerminal", () => {
 	test("is true in the Completed and Removed categories", () => {
 		expect(isTerminal(workItem({ "System.State": "Closed" }), AGILE)).toBe(true);
@@ -190,11 +224,12 @@ describe("toIssueResponse", () => {
 				workItem({ "System.Title": "Title", "System.Description": "<p>Body</p>" }, [
 					{ rel: LINK, url: "https://x/_apis/wit/workItems/3" },
 				]),
+				AGILE,
 				LINK,
 			),
 		).toEqual({
 			id: "7",
-			status: "Active",
+			status: "other",
 			title: "Title",
 			description: "Body",
 			blockedBy: ["3"],
@@ -202,9 +237,16 @@ describe("toIssueResponse", () => {
 	});
 
 	test("omits title, description and blockers when the payload carries none", () => {
-		expect(toIssueResponse(workItem({ "System.Title": "" }), LINK)).toEqual({
+		expect(toIssueResponse(workItem({ "System.Title": "" }), AGILE, LINK)).toEqual({
 			id: "7",
-			status: "Active",
+			status: "other",
 		});
+	});
+
+	test("reports the state on warren's vocabulary, not the process's spelling", () => {
+		expect(toIssueResponse(workItem({ "System.State": "New" }), AGILE, LINK).status).toBe("open");
+		expect(toIssueResponse(workItem({ "System.State": "Closed" }), AGILE, LINK).status).toBe(
+			"closed",
+		);
 	});
 });

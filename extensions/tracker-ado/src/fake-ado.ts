@@ -178,15 +178,20 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 		});
 	}
 
+	/** Answers only the fields the caller asked for, as Azure DevOps does. */
 	async function batchRoute(request: FakeRequest): Promise<Response> {
-		const body = await readBody<{ ids?: number[] }>(request.init);
+		const body = await readBody<{ ids?: number[]; fields?: string[] }>(request.init);
 		const ids = body.ids ?? [];
 		if (ids.length > 200) return adoError("VS403474: You requested more than 200 ids", 400);
+		const wanted = body.fields ?? [];
 		const found = ids.flatMap((id) => {
 			const item = items.get(id);
-			return item === undefined
-				? []
-				: [{ id, rev: item.rev ?? 1, fields: { "System.State": item.state } }];
+			if (item === undefined) return [];
+			const full = workItemBody(item, request.url.origin) as { fields: Record<string, unknown> };
+			const fields = Object.fromEntries(
+				Object.entries(full.fields).filter(([name]) => wanted.includes(name)),
+			);
+			return [{ id, rev: item.rev ?? 1, fields }];
 		});
 		return json({ count: found.length, value: found });
 	}

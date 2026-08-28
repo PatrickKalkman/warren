@@ -47,6 +47,9 @@ export interface AdoWorkItemTypeState {
 	readonly category?: string;
 }
 
+/** The state category a work item starts in, before anyone picks it up. */
+export const ADO_PROPOSED_CATEGORY = "Proposed";
+
 /** The state category every finished work item lands in. */
 export const ADO_COMPLETED_CATEGORY = "Completed";
 

@@ -13,6 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadConfig } from "./config.ts";
 import { createFakeAdo, type FakeAdoOptions, SAMPLE_ITEMS } from "./fake-ado.ts";
+import { ISSUE_STATUSES } from "./protocol.ts";
 import { createAdoTrackerHandler } from "./server.ts";
 
 function harness(options: Partial<FakeAdoOptions> = {}, env: Record<string, string> = {}) {
@@ -60,12 +61,19 @@ describe("GET /issues/{id}", () => {
 		const body = await (await call("GET", "/issues/96379")).json();
 		expect(body).toEqual({
 			id: "96379",
-			status: "New",
+			status: "open",
 			title: "Show crop from shared groups",
 			description:
 				"A grower who joined a shared group sees no crop on the dashboard.\n\nReproduced on test twice.\n\nAcceptance criteria:\nCrop is listed for shared groups\nOwn groups unchanged",
 			blockedBy: ["96380"],
 		});
+	});
+
+	test("reports a failed states lookup as an upstream failure, not a missing issue", async () => {
+		const { call } = harness({ failWith: { status: 404, only: /\/workitemtypes\// } });
+		const response = await call("GET", "/issues/96379");
+		expect(response.status).toBe(502);
+		expect((await response.json()) as unknown).toMatchObject({ error: { code: "upstream_error" } });
 	});
 
 	test("answers a missing id with the reserved code", async () => {
@@ -89,12 +97,26 @@ describe("GET /issues/{id}", () => {
 });
 
 describe("GET /issue-statuses", () => {
-	test("returns the raw id to state map for the configured query", async () => {
+	test("returns the id to status map for the configured query, on warren's vocabulary", async () => {
 		const { call } = harness();
 		const body = (await (await call("GET", "/issue-statuses")).json()) as {
 			statuses: Record<string, string>;
 		};
-		expect(body.statuses).toEqual({ "96379": "New", "96380": "Active", "96381": "Closed" });
+		expect(body.statuses).toEqual({ "96379": "open", "96380": "other", "96381": "closed" });
+	});
+
+	test("resolves each type's states once, not once per work item", async () => {
+		const { ado, call } = harness();
+		await call("GET", "/issue-statuses");
+		const stateReads = ado.calls.filter((c) => c.includes("/workitemtypes/"));
+		expect(stateReads).toHaveLength(new Set(SAMPLE_ITEMS.map((i) => i.type)).size);
+	});
+
+	test("reports a failed states lookup as an upstream failure, not a missing issue", async () => {
+		const { call } = harness({ failWith: { status: 404, only: /\/workitemtypes\// } });
+		const response = await call("GET", "/issue-statuses");
+		expect(response.status).toBe(502);
+		expect((await response.json()) as unknown).toMatchObject({ error: { code: "upstream_error" } });
 	});
 
 	test("reads states in batches rather than one call per item", async () => {
@@ -116,12 +138,37 @@ describe("GET /issue-statuses", () => {
 	});
 });
 
+/**
+ * Warren's bridge (`src/tracker/remote/remote-tracker.ts`) passes a status
+ * through only when it is one of these exact strings and folds anything
+ * else to `other`, so a raw process state name would never read as
+ * closed there. The extension seam keeps that bridge out of reach of
+ * this suite, so the vocabulary is pinned here instead.
+ */
+describe("the status vocabulary", () => {
+	test("is warren's open/closed/other on every route that reports one", async () => {
+		const { call } = harness();
+		const closed = (await (await call("POST", "/issues/96379/close")).json()) as {
+			status: string;
+		};
+		const read = (await (await call("GET", "/issues/96380")).json()) as { status: string };
+		const map = (await (await call("GET", "/issue-statuses")).json()) as {
+			statuses: Record<string, string>;
+		};
+		for (const status of [closed.status, read.status, ...Object.values(map.statuses)]) {
+			expect(ISSUE_STATUSES as readonly string[]).toContain(status);
+		}
+		expect(closed.status).toBe("closed");
+		expect(map.statuses["96379"]).toBe("closed");
+	});
+});
+
 describe("POST /issues/{id}/close", () => {
 	test("moves the work item into the Completed category", async () => {
 		const { ado, call } = harness();
 		const response = await call("POST", "/issues/96379/close");
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ id: "96379", status: "Closed" });
+		expect(await response.json()).toMatchObject({ id: "96379", status: "closed" });
 		expect(ado.items.get(96379)?.state).toBe("Closed");
 	});
 
@@ -133,7 +180,7 @@ describe("POST /issues/{id}/close", () => {
 
 		expect(first.status).toBe(200);
 		expect(second.status).toBe(200);
-		expect(await second.json()).toMatchObject({ id: "96379", status: "Closed" });
+		expect(await second.json()).toMatchObject({ id: "96379", status: "closed" });
 		// The second close reads the work item and stops there: the states
 		// come from memory and no PATCH goes out.
 		expect(ado.calls.slice(before)).toEqual(["GET /acme/Platform/_apis/wit/workitems/96379"]);
@@ -145,7 +192,7 @@ describe("POST /issues/{id}/close", () => {
 		});
 		const response = await call("POST", "/issues/1/close");
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ id: "1", status: "Removed" });
+		expect(await response.json()).toMatchObject({ id: "1", status: "closed" });
 		expect(ado.items.get(1)?.state).toBe("Removed");
 	});
 
@@ -216,7 +263,7 @@ describe("POST /issues/{id}/close", () => {
 		});
 		const response = await call("POST", "/issues/96379/close");
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ id: "96379", status: "Removed" });
+		expect(await response.json()).toMatchObject({ id: "96379", status: "closed" });
 		expect(ado.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(1);
 	});
 
@@ -236,7 +283,7 @@ describe("POST /issues/{id}/close", () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({
 			id: "96379",
-			status: "Closed",
+			status: "closed",
 			title: "Retitled",
 		});
 		expect(ado.calls.filter((c) => c.startsWith("PATCH"))).toHaveLength(2);

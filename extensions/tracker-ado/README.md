@@ -104,12 +104,27 @@ docker run --rm -p 8080:8080 \
 | warren-tracker/v1 | Azure DevOps (REST 7.1, all under `{org}/{project}/_apis/wit`) |
 |---|---|
 | `GET /capabilities` | nothing; answered locally, so a boot probe costs no round trip |
-| `GET /issues/{id}` | `GET /workitems/{id}?$expand=relations` |
-| `GET /issue-statuses` | `POST /wiql` over `ADO_WIQL` for the ids, then `POST /workitemsbatch` for `System.State`, 200 ids at a time |
+| `GET /issues/{id}` | `GET /workitems/{id}?$expand=relations`, then `GET /workitemtypes/{type}/states` (cached per type) |
+| `GET /issue-statuses` | `POST /wiql` over `ADO_WIQL` for the ids, then `POST /workitemsbatch` for `System.State` and `System.WorkItemType`, 200 ids at a time, then `GET /workitemtypes/{type}/states` once per type seen (cached) |
 | `POST /issues/{id}/close` | read the work item, `GET /workitemtypes/{type}/states` (cached per type), then `PATCH /workitems/{id}` with a JSON patch on `System.State` if it is not already terminal |
 
-`status` on the wire is the raw `System.State`. Warren normalizes to its
-own three-state vocabulary at its bridge, so this server never guesses.
+`status` on the wire is warren's own `open | closed | other`, never the
+raw `System.State`. The fold goes by the state's *category* in the work
+item type's process, so it holds for any process template and any
+spelling:
+
+| State category | `status` | Why |
+|---|---|---|
+| `Proposed` (`New`, `To Do`, `Approved`, …) | `open` | the only category warren may claim work from |
+| `InProgress`, `Resolved` | `other` | someone has it; neither claimable nor finished |
+| `Completed`, `Removed` (`Closed`, `Done`, `Removed`, …) | `closed` | finished, or taken off the backlog |
+| a state the process does not define | `other` | cannot be shown closed, and claiming it would be a guess |
+
+The protocol text says a server may send its raw status and warren
+normalizes at the bridge, but the bridge only recognizes these three
+exact spellings and folds everything else to `other`, so a raw `Closed`
+would never read as closed and the plan-run coordinator would never skip
+a finished work item. See friction point 6.
 
 `description` is assembled from the rich-text fields the process template
 splits the narrative across: `System.Description`, then
@@ -274,5 +289,20 @@ on the first run. What the build surfaced:
    concatenates them. The protocol's single `description` string is
    still the right shape for an agent prompt; it just means the server,
    not warren, decides the labeling.
+
+6. **"Warren normalizes raw statuses at the bridge" is not true.**
+   `src/tracker/remote/protocol.ts` and the issue-tracker design record
+   both say a server sends its raw status string and warren folds it.
+   The bridge's fold (`normalizeIssueStatus` in `src/core/wire-tracker.ts`)
+   recognizes only the literal strings `open` and `closed`; every other
+   spelling becomes `other`, which is neither closed nor claimable. A
+   server that follows the protocol text therefore produces a tracker
+   whose finished work never reads as finished, and the conformance
+   suite does not catch it because it accepts any non-empty string. The
+   bridge does pass a status through when it already is one of the three
+   words, so this server speaks that vocabulary itself. The protocol
+   should say so, the conformance suite should require it, and
+   `tracker-jira` (which sends the raw Jira status name) has the same
+   defect.
 
 Nothing here required a warren surface that does not exist.
