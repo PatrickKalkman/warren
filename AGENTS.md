@@ -161,9 +161,11 @@ The same walk generates `docs/cli-reference.md` (`bun run gen:cli-ref`).
 The env contract documents `WARREN_BASE_URL`, `WARREN_API_TOKEN`, and
 `WARREN_CLIENT_CONFIG`.
 
-- Bun auto-loads `.env` from the invoking cwd — a stale
-  `WARREN_API_TOKEN` there outranks the client config file on every
-  command (warren-8807, warren-2244).
+- The CLI never auto-loads a cwd `.env`: the `src/cli/main.ts` shebang
+  passes `--env-file=/dev/null`, so only genuinely exported environment
+  variables participate in credential resolution. This closed the
+  stale-dotfile trap of warren-8807/warren-2244 structurally. A guard
+  test in `src/cli/main.test.ts` pins the shebang.
 - `warren login` prefers a token piped on stdin over an ambient env
   token.
 - Auth-rejection errors name the environment as the token source when
