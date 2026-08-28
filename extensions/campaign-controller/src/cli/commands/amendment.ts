@@ -44,10 +44,14 @@ export function runAmendmentApply(
 	deps: AmendmentCommandDeps,
 ): Record<string, unknown> {
 	const nowMs = deps.clock.nowMs();
-	const amendmentInput = readAndValidateAmendment(config, nowMs);
+	// `applyAmendment` validates the raw document itself; handing it the
+	// `{amendment, digest}` wrapper from validate made every apply fail with
+	// unknown-field errors on the wrapper keys (warren-04a6).
+	const amendmentPath = requirePath(config, "amendmentPath", "amendment", ENV_AMENDMENT_PATH);
+	const raw = readJsonFile(amendmentPath, "amendment");
 	const store = openStore(config, deps.clock, deps.ids);
 	try {
-		const applied = applyAmendment(store, { amendment: amendmentInput, nowMs });
+		const applied = applyAmendment(store, { amendment: raw, nowMs });
 		return {
 			campaignId: applied.campaign.id,
 			applied: applied.applied,

@@ -351,6 +351,35 @@ describe("runCli", () => {
 		expect(list(report.items)).toHaveLength(1);
 	});
 
+	test("amendment apply accepts the raw amendment document (warren-04a6)", async () => {
+		const fx = fixture();
+		const id = await approvedCampaignId(fx);
+		const unapprovedAmendment = {
+			schemaVersion: 1,
+			amendmentId: "ame-budget-bump",
+			campaignId: "camp-openclaw-eod-v0",
+			baseManifestDigest: MANIFEST_DIGEST,
+			budget: { perRunUsd: 10, dailyUsd: 20, totalUsd: 100 },
+		};
+		const amendment = {
+			...unapprovedAmendment,
+			approval: {
+				approvedBy: "jayminwest",
+				approvedAt: "2026-08-25T13:00:00.000Z",
+				amendmentDigest: digestOf(unapprovedAmendment),
+			},
+		};
+		const amendmentPath = join(TEMP_ROOT, "amendment-apply.json");
+		writeFileSync(amendmentPath, `${JSON.stringify(amendment, null, "\t")}\n`);
+		const applied = await fx.run(["amendment", "apply", "--amendment", amendmentPath]);
+		expect(applied.code).toBe(0);
+		const result = record(envelope(applied).result);
+		expect(result.campaignId).toBe(id);
+		expect(result.applied).toBe(true);
+		expect(result.amendedFields).toEqual(["budget"]);
+		expect(result.campaignVersion).toBe(2);
+	});
+
 	test("approve with the wrong digest refuses with exit 4 and the invariant", async () => {
 		const fx = fixture();
 		const imported = await fx.run(["manifest", "import"]);
