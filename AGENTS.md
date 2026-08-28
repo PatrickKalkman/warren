@@ -634,16 +634,22 @@ imports it. `check:layers` enforces both directions, because an import
 either way compiles the extension into core and makes its removal
 breaking.
 
-Three extensions ship today. The flagship is `extensions/audit-log/`
-(plan pl-116e), a collector that tails run events, normalizes them
-into an append-only audit log, and exports it over
-`GET /audit-log.jsonl`. Beside it sits `extensions/judge/`
+Five extension packages ship today. The flagship is
+`extensions/audit-log/` (plan pl-116e), a collector that tails run
+events, normalizes them into an append-only audit log, and exports it
+over `GET /audit-log.jsonl`. Beside it sits `extensions/judge/`
 (plan pl-17ca), which reads finished runs, judges them against the
 15-class rubric v1, stores verdicts append-only, and exports them
 over `GET /verdicts.jsonl`. `extensions/tracker-jira/` (warren-27d9)
-is the third. It speaks the warren-tracker/v1 protocol against Jira Cloud and holds
-its own Jira credential. Its README carries the friction list for that
-build.
+speaks the warren-tracker/v1 protocol against Jira Cloud and holds
+its own Jira credential. Its README carries the friction list for
+that build. `extensions/tracker-conformance/` (warren-53ea) is the
+warren-tracker/v1 conformance suite plus FakeTracker, the reference
+in-memory server. `extensions/campaign-controller/` (plan pl-91b6) is
+the first controller extension: it owns durable campaign state and
+drives warren's HTTP command APIs under an operator-approved policy —
+dry-run journaling in V0, plus a single policy-gated create-PR
+mutation from Phase 2.
 
 `extensions/audit-log/FRICTION.md` logs every place the extension
 author had to work around a missing warren surface, and that list is
