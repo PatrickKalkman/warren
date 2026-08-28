@@ -172,6 +172,12 @@ export interface RepositoryPolicy {
 	maxNewPrsPerDay: number;
 	requiredChecks: string[];
 	mutations: Mutations;
+	/**
+	 * Per-work-item follow-up iteration cap (warren-0ad3). Optional profile
+	 * field; the small default keeps previously-valid profiles valid and
+	 * bounds how many follow-up runs one PR can draw from the budget.
+	 */
+	maxFollowUpsPerPr: number;
 }
 
 /** Validation options: `nowMs` pins "now" so tests stay deterministic. */
@@ -204,6 +210,7 @@ const TOP_LEVEL_FIELDS = [
 	"maxNewPrsPerDay",
 	"requiredChecks",
 	"mutations",
+	"maxFollowUpsPerPr",
 ] as const;
 
 const SOURCE_FIELDS = ["url", "fetchedAt", "sha256"] as const;
@@ -409,6 +416,7 @@ export function validateRepositoryPolicy(
 		maxLen: 200,
 	});
 	const mutations = requireMutations(root);
+	const maxFollowUpsPerPr = requireFollowUpCap(root);
 
 	const policy: RepositoryPolicy = {
 		schemaVersion: schemaVersion as typeof REPOSITORY_POLICY_SCHEMA_VERSION,
@@ -429,8 +437,23 @@ export function validateRepositoryPolicy(
 		maxNewPrsPerDay,
 		requiredChecks,
 		mutations,
+		maxFollowUpsPerPr,
 	};
 	return { policy, digest: digestOf(policy) };
+}
+
+/** Default per-work-item follow-up iteration cap (warren-0ad3). */
+export const DEFAULT_MAX_FOLLOW_UPS_PER_PR = 2;
+
+/** Parse the optional per-PR follow-up cap; absence keeps old profiles valid. */
+function requireFollowUpCap(root: ReturnType<typeof asObject>): number {
+	if (root.maxFollowUpsPerPr === undefined || root.maxFollowUpsPerPr === null) {
+		return DEFAULT_MAX_FOLLOW_UPS_PER_PR;
+	}
+	return requireInt(root, "maxFollowUpsPerPr", "repository policy", {
+		min: 1,
+		max: 10,
+	});
 }
 
 function requireUpstream(root: ReturnType<typeof asObject>): RepoCoordinates {
