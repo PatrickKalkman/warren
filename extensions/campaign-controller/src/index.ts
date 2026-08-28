@@ -204,6 +204,18 @@ export {
 	UPDATE_PULL_REQUEST_ACTION_TYPE,
 } from "./pr-execute/mutation-journal.ts";
 export {
+	COMMENT_RATE_CAPPED_REASON,
+	commentActionKey,
+	composeFindingResponseComment,
+	composeReReviewComment,
+	type PostCommentDeps,
+	type PostCommentInput,
+	type PostCommentOutcome,
+	type PostCommentOutcomeStatus,
+	postFindingResponseComment,
+	postReReviewCommandComment,
+} from "./pr-execute/post-comment.ts";
+export {
 	PR_INTENT_ACTION_TYPE,
 	PR_INTENT_PROTECTED_PATH_REASON,
 	type PrIntentInput,
@@ -243,6 +255,9 @@ export type {
 } from "./reconcile/reconciler.ts";
 export { UpstreamPrReconciler } from "./reconcile/reconciler.ts";
 export {
+	COMMENT_PLACEHOLDERS,
+	type CommentPlaceholder,
+	type CommentTemplatesPolicy,
 	MAX_STALENESS_DAYS,
 	OPENCLAW_UPSTREAM_MAX_OPEN_PRS,
 	type PolicySource,
@@ -250,6 +265,7 @@ export {
 	REPOSITORY_POLICY_SCHEMA_VERSION,
 	type RepositoryPolicy,
 	type ValidatedRepositoryPolicy,
+	validateCommentTemplates,
 	validateRepositoryPolicy,
 	WORK_TYPES,
 	type WorkType,
