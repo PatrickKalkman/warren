@@ -173,6 +173,7 @@ does not retry a 4xx.
 | 203 with a sign-in page | `502 upstream_unauthorized` | what Azure DevOps actually serves for a bad or expired PAT on many routes |
 | 429 | `429 upstream_rate_limited`, `Retry-After` passed through | warren's bridge already backs off on 429 and honors the header |
 | 5xx or unreachable | `502 upstream_error` / `upstream_unreachable` | the tracker answered; the system behind it did not |
+| a WIQL result past `ADO_MAX_WIQL_RESULTS` | `409 query_too_broad` | a configuration answer that stays wrong on a retry, so warren must not repeat the query |
 | n/a | `400 invalid_issue_id` | the path segment is not valid percent-encoding, so there is no id to look up |
 
 There are no retries in this container. A second, unsynchronized backoff

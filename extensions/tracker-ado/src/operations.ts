@@ -19,7 +19,7 @@
  *     present but the system behind it did not answer.
  */
 
-import { AdoApiError, type AdoClient } from "./ado/client.ts";
+import { AdoApiError, type AdoClient, AdoQueryTooBroadError } from "./ado/client.ts";
 import {
 	issueStatus,
 	isTerminal,
@@ -52,6 +52,11 @@ function notFound(key: string): TrackerOperationError {
 }
 
 function toTrackerError(err: unknown, key?: string): TrackerOperationError {
+	// A configuration answer: the query stays too broad on a retry, so a
+	// 4xx keeps warren from repeating an expensive query for nothing.
+	if (err instanceof AdoQueryTooBroadError) {
+		return new TrackerOperationError("query_too_broad", err.message, 409);
+	}
 	if (!(err instanceof AdoApiError)) {
 		const reason = err instanceof Error ? err.message : String(err);
 		return new TrackerOperationError("internal_error", reason, 500);

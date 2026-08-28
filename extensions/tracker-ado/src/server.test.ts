@@ -128,13 +128,13 @@ describe("GET /issue-statuses", () => {
 		expect(ado.calls.filter((c) => c.endsWith("/workitemsbatch"))).toHaveLength(2);
 	});
 
-	test("fails loud rather than truncating when the query selects too much", async () => {
+	test("answers a query that selects too much with a 409 warren will not retry, rather than truncating", async () => {
 		const { call } = harness({}, { ADO_MAX_WIQL_RESULTS: "2" });
 		const response = await call("GET", "/issue-statuses");
-		expect(response.status).toBe(502);
-		expect(((await response.json()) as { error: { message: string } }).error.message).toMatch(
-			/ADO_MAX_WIQL_RESULTS/,
-		);
+		expect(response.status).toBe(409);
+		const body = (await response.json()) as { error: { code: string; message: string } };
+		expect(body.error.code).toBe("query_too_broad");
+		expect(body.error.message).toMatch(/ADO_MAX_WIQL_RESULTS/);
 	});
 });
 

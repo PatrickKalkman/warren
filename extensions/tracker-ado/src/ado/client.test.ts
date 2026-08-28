@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../config.ts";
 import { json } from "../responses.ts";
-import { AdoApiError, AdoClient } from "./client.ts";
+import { AdoApiError, AdoClient, AdoQueryTooBroadError } from "./client.ts";
 
 interface RecordedRequest {
 	url: string;
@@ -145,7 +145,9 @@ describe("AdoClient.queryWorkItems", () => {
 			json({ queryType: "flat", workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] }),
 		);
 		const client = new AdoClient(loadConfig({ ...BASE, ADO_MAX_WIQL_RESULTS: "2" }), fetchImpl);
-		await expect(client.queryWorkItems()).rejects.toThrow(/ADO_MAX_WIQL_RESULTS/);
+		const failure = await client.queryWorkItems().catch((err: unknown) => err);
+		expect(failure).toBeInstanceOf(AdoQueryTooBroadError);
+		expect((failure as Error).message).toMatch(/ADO_MAX_WIQL_RESULTS/);
 		expect(new URL(requests[0]?.url ?? "").searchParams.get("$top")).toBe("3");
 	});
 

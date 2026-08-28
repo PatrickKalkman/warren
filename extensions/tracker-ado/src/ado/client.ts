@@ -33,6 +33,18 @@ export class AdoApiError extends Error {
 	}
 }
 
+/**
+ * The configured WIQL selected more than `maxWiqlResults` work items.
+ * Azure DevOps answered fine; the configuration is what is wrong, and it
+ * stays wrong on a retry, so this is deliberately not an {@link AdoApiError}.
+ */
+export class AdoQueryTooBroadError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "AdoQueryTooBroadError";
+	}
+}
+
 const STATE_FIELD = "System.State";
 const TYPE_FIELD = "System.WorkItemType";
 /** What the status map needs: the state, and the type whose process defines it. */
@@ -110,9 +122,8 @@ export class AdoClient {
 			ids.push(id);
 		}
 		if (ids.length > limit) {
-			throw new AdoApiError(
+			throw new AdoQueryTooBroadError(
 				`the configured WIQL selected more than ${limit} work items; narrow it or raise ADO_MAX_WIQL_RESULTS`,
-				0,
 			);
 		}
 		return ids;
