@@ -1,0 +1,10 @@
+{
+	"knownBotLogins": [
+		"clawreview-bot"
+	],
+	"findingMarker": "### Findings",
+	"findingLinePattern": "^- \\[(?<priority>P[0-9])\\] (?<title>[^:]+)(?:: `(?<file>[^`]+)`(?: line (?<line>[0-9]+))?)?$",
+	"reReviewCommands": [
+		"@clawreview-bot recheck please"
+	]
+}

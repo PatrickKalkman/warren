@@ -1,0 +1,10 @@
+{
+	"knownBotLogins": [
+		"meridian-guard"
+	],
+	"findingMarker": "<!-- meridian-guard: findings -->",
+	"findingLinePattern": "^\\* (?<title>[^@]+) @ (?<file>[a-zA-Z0-9_./-]+):(?<line>[0-9]+)(?: \\[(?<priority>high|normal|low)\\])?$",
+	"reReviewCommands": [
+		"/meridian-guard re-run review"
+	]
+}
