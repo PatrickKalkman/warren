@@ -149,10 +149,26 @@ describe("POST /issues/{id}/close", () => {
 		expect(ado.items.get(1)?.state).toBe("Removed");
 	});
 
-	test("uses the state an operator named", async () => {
+	test("uses the state an operator named, and reads it as closed afterwards", async () => {
+		const { ado, call } = harness({}, { ADO_DONE_STATE: "removed" });
+		const first = await call("POST", "/issues/96379/close");
+		const before = ado.calls.length;
+		const second = await call("POST", "/issues/96379/close");
+
+		expect(first.status).toBe(200);
+		expect(ado.items.get(96379)?.state).toBe("Removed");
+		expect(second.status).toBe(200);
+		expect(ado.calls.slice(before)).toEqual(["GET /acme/Platform/_apis/wit/workitems/96379"]);
+	});
+
+	test("answers 409 when the configured state is not terminal, rather than a close that never sticks", async () => {
 		const { ado, call } = harness({}, { ADO_DONE_STATE: "resolved" });
-		await call("POST", "/issues/96379/close");
-		expect(ado.items.get(96379)?.state).toBe("Resolved");
+		const response = await call("POST", "/issues/96379/close");
+		expect(response.status).toBe(409);
+		expect((await response.json()) as unknown).toMatchObject({
+			error: { code: "no_close_state" },
+		});
+		expect(ado.items.get(96379)?.state).toBe("New");
 	});
 
 	test("answers 409 when the process defines no terminal state", async () => {
@@ -186,6 +202,17 @@ describe("POST /issues/{id}/close", () => {
 		expect((await response.json()) as unknown).toMatchObject({
 			error: { code: "issue_not_found" },
 		});
+	});
+
+	test("reports a 404 past the work-item read as an upstream failure, not a missing issue", async () => {
+		for (const only of [/\/workitemtypes\/[^/]+\/states$/, /^PATCH /]) {
+			const { call } = harness({ failWith: { status: 404, only } });
+			const response = await call("POST", "/issues/96379/close");
+			expect(response.status, String(only)).toBe(502);
+			expect((await response.json()) as unknown, String(only)).toMatchObject({
+				error: { code: "upstream_error" },
+			});
+		}
 	});
 });
 

@@ -140,11 +140,17 @@ describe("pickCloseState", () => {
 	});
 
 	test("prefers the configured name, matched case-insensitively, in the process's spelling", () => {
-		expect(pickCloseState(AGILE, "resolved")).toBe("Resolved");
+		expect(pickCloseState(AGILE, "closed")).toBe("Closed");
+		expect(pickCloseState(AGILE, "removed")).toBe("Removed");
 	});
 
 	test("answers undefined when the configured name is not a state of this type", () => {
 		expect(pickCloseState(AGILE, "Done")).toBeUndefined();
+	});
+
+	test("answers undefined when the configured state is not terminal, so close would not stick", () => {
+		expect(pickCloseState(AGILE, "Resolved")).toBeUndefined();
+		expect(pickCloseState(AGILE, "Active")).toBeUndefined();
 	});
 
 	test("answers undefined when the process has no Completed-category state", () => {

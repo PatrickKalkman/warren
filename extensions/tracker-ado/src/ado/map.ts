@@ -134,7 +134,10 @@ function stateName(item: AdoWorkItem): string {
  */
 export function isTerminal(item: AdoWorkItem, states: readonly AdoWorkItemTypeState[]): boolean {
 	const current = stateName(item).trim().toLowerCase();
-	const category = states.find((s) => s.name?.trim().toLowerCase() === current)?.category;
+	return isTerminalCategory(states.find((s) => s.name?.trim().toLowerCase() === current)?.category);
+}
+
+function isTerminalCategory(category: string | undefined): boolean {
 	return category === ADO_COMPLETED_CATEGORY || category === ADO_REMOVED_CATEGORY;
 }
 
@@ -162,6 +165,11 @@ export function toIssueResponse(
  * `Completed`-category state is the answer, which is how Azure DevOps
  * itself defines finished.
  *
+ * Whichever way it was chosen, the state must be one {@link isTerminal}
+ * accepts. A configured name in another category (`Resolved` on the
+ * Agile template, say) would make close a state change that a second
+ * close repeats, because the item never reads as closed afterwards.
+ *
  * Returns undefined when the process offers no such state. That is a
  * real configuration answer, not a transient failure, so the caller must
  * not retry it.
@@ -176,7 +184,8 @@ export function pickCloseState(
 	);
 	if (configuredName !== undefined) {
 		const wanted = configuredName.trim().toLowerCase();
-		return named.find((s) => s.name.trim().toLowerCase() === wanted)?.name;
+		const match = named.find((s) => s.name.trim().toLowerCase() === wanted);
+		return match !== undefined && isTerminalCategory(match.category) ? match.name : undefined;
 	}
 	return named.find((s) => s.category === ADO_COMPLETED_CATEGORY)?.name;
 }

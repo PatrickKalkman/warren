@@ -21,6 +21,7 @@
 
 import { AdoApiError, type AdoClient } from "./ado/client.ts";
 import { isTerminal, parseWorkItemId, pickCloseState, toIssueResponse } from "./ado/map.ts";
+import type { AdoWorkItem } from "./ado/types.ts";
 import type { AdoTrackerConfig } from "./config.ts";
 import type { RemoteIssueResponse } from "./protocol.ts";
 import { TRACKER_ISSUE_NOT_FOUND_CODE } from "./protocol.ts";
@@ -66,10 +67,19 @@ function toTrackerError(err: unknown, key?: string): TrackerOperationError {
 	return new TrackerOperationError("upstream_error", err.message, 502);
 }
 
-function requireId(key: string): number {
+/**
+ * The work item behind a key. This is the only read whose 404 means the
+ * ISSUE is missing: every later call in an operation names a type or a
+ * state, so a 404 there is Azure DevOps misbehaving, not an absent issue.
+ */
+async function readWorkItem(client: AdoClient, key: string): Promise<AdoWorkItem> {
 	const id = parseWorkItemId(key);
 	if (id === undefined) throw notFound(key);
-	return id;
+	try {
+		return await client.getWorkItem(id);
+	} catch (err) {
+		throw toTrackerError(err, key);
+	}
 }
 
 export async function readIssue(
@@ -77,13 +87,8 @@ export async function readIssue(
 	config: AdoTrackerConfig,
 	key: string,
 ): Promise<RemoteIssueResponse> {
-	const id = requireId(key);
-	try {
-		const item = await client.getWorkItem(id);
-		return toIssueResponse(item, key, config.blockedByLink);
-	} catch (err) {
-		throw toTrackerError(err, key);
-	}
+	const item = await readWorkItem(client, key);
+	return toIssueResponse(item, key, config.blockedByLink);
 }
 
 export async function readStatuses(client: AdoClient): Promise<Record<string, string>> {
@@ -101,37 +106,42 @@ export async function readStatuses(client: AdoClient): Promise<Record<string, st
  * state change: closing twice is 200 both times, which the protocol
  * requires and the conformance suite checks.
  *
- * A process that offers no terminal state, or one whose name the operator
- * configured but the process does not define, is a configuration answer
- * rather than a transient failure, so it surfaces as 409. Warren does not
- * retry a 4xx.
+ * A process that offers no terminal state, or one whose configured name
+ * is not a terminal state of the type, is a configuration answer rather
+ * than a transient failure, so it surfaces as 409. Warren does not retry
+ * a 4xx.
  */
 export async function closeIssue(
 	client: AdoClient,
 	config: AdoTrackerConfig,
 	key: string,
 ): Promise<RemoteIssueResponse> {
-	const id = requireId(key);
+	const current = await readWorkItem(client, key);
+	const type = current.fields?.["System.WorkItemType"] ?? "";
 	try {
-		const current = await client.getWorkItem(id);
-		const type = current.fields?.["System.WorkItemType"] ?? "";
 		const states = await client.states(type);
 		if (isTerminal(current, states)) return toIssueResponse(current, key, config.blockedByLink);
 
 		const target = pickCloseState(states, config.doneState);
-		if (target === undefined) {
-			throw new TrackerOperationError(
-				"no_close_state",
-				config.doneState === undefined
-					? `the "${type}" process defines no Completed-category state to close ${key} into`
-					: `state "${config.doneState}" is not defined for "${type}", so ${key} cannot be closed into it`,
-				409,
-			);
-		}
-		const closed = await client.setState(id, target);
+		if (target === undefined) throw noCloseState(config.doneState, type, key);
+		const closed = await client.setState(current.id ?? Number(key), target);
 		return toIssueResponse(closed, key, config.blockedByLink);
 	} catch (err) {
 		if (err instanceof TrackerOperationError) throw err;
-		throw toTrackerError(err, key);
+		throw toTrackerError(err);
 	}
+}
+
+function noCloseState(
+	doneState: string | undefined,
+	type: string,
+	key: string,
+): TrackerOperationError {
+	return new TrackerOperationError(
+		"no_close_state",
+		doneState === undefined
+			? `the "${type}" process defines no Completed-category state to close ${key} into`
+			: `state "${doneState}" is not a Completed- or Removed-category state of "${type}", so ${key} cannot be closed into it`,
+		409,
+	);
 }

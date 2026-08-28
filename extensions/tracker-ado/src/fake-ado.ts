@@ -40,12 +40,16 @@ export interface FakeAdoOptions {
 	readonly items: readonly FakeAdoWorkItem[];
 	/** The states every work item type offers. */
 	readonly states?: readonly FakeAdoState[];
-	/** Fail every call with this status, for the error-mapping tests. */
-	readonly failWith?: {
-		readonly status: number;
-		readonly retryAfter?: string;
-		readonly html?: boolean;
-	};
+	/** Fail calls with this status, for the error-mapping tests. */
+	readonly failWith?: FakeAdoFailure;
+}
+
+export interface FakeAdoFailure {
+	readonly status: number;
+	readonly retryAfter?: string;
+	readonly html?: boolean;
+	/** Limit the failure to requests whose `METHOD path` matches; unset fails every call. */
+	readonly only?: RegExp;
 }
 
 /** The Agile process template's states, which the sample items use. */
@@ -190,15 +194,17 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 	const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
 		const url = new URL(typeof input === "string" ? input : input.toString());
 		const method = init?.method ?? "GET";
-		calls.push(`${method} ${url.pathname}`);
-		if (options.failWith !== undefined) return failure(options.failWith);
+		const call = `${method} ${url.pathname}`;
+		calls.push(call);
+		const failWith = options.failWith;
+		if (failWith !== undefined && (failWith.only?.test(call) ?? true)) return failure(failWith);
 		return route({ method, url, init });
 	}) as unknown as typeof fetch;
 
 	return { fetchImpl, items, calls };
 }
 
-function failure(spec: NonNullable<FakeAdoOptions["failWith"]>): Response {
+function failure(spec: FakeAdoFailure): Response {
 	const headers: Record<string, string> =
 		spec.retryAfter === undefined ? {} : { "retry-after": spec.retryAfter };
 	if (spec.html === true) {
