@@ -95,6 +95,20 @@ interface ExternalActivity {
 	readonly atMs: number;
 }
 
+/**
+ * GitHub's raw author grammar for bot accounts: the BOT author association
+ * (any review bot, including review bots that post placeholder progress
+ * markers) and the `[bot]` login suffix convention. Classification reads
+ * only these fields — never comment text (warren-b853).
+ */
+export function isBotComment(
+	comment:
+		| Pick<GithubIssueCommentSnapshot, "authorLogin" | "authorAssociation">
+		| Pick<GithubReviewCommentSnapshot, "authorLogin" | "authorAssociation">,
+): boolean {
+	return comment.authorAssociation === "BOT" || comment.authorLogin.endsWith("[bot]");
+}
+
 function parseMs(value: string | null): number | null {
 	if (value === null) return null;
 	const parsed = Date.parse(value);
@@ -153,6 +167,10 @@ function commentCandidates(
 	const candidates: AttentionCandidate[] = [];
 	for (const comment of comments) {
 		if (comment.authorLogin === botLogin) continue;
+		// Bot placeholder comments (review started markers) and their
+		// durable re-render edits never open attention — they await no bot
+		// response and only re-derive on every poll.
+		if (isBotComment(comment)) continue;
 		const atMs = parseMs(comment.updatedAt);
 		if (atMs !== null) activity.push({ key: `${kind}:${comment.nodeId}`, atMs });
 		candidates.push({

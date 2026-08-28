@@ -7,6 +7,7 @@
  * (design record §10.1). PR identities stay controller-local because Warren's
  * Forge cannot express a cross-fork PR (§14.8).
  */
+import { canonicalJson } from "../digest.ts";
 import { StateError } from "../errors.ts";
 import { nowMs, type StoreContext } from "./context.ts";
 import type { AttentionItemRow, GithubEventRow, PrIdentityRow, RunLinkRow } from "./types.ts";
@@ -351,5 +352,29 @@ export class EventStore {
 		if (result.changes === 0) {
 			throw new StateError(`attention item ${id} is missing or already resolved`);
 		}
+	}
+
+	/**
+	 * Monotonic auto-resolution with a stamped cause: sets `resolved_at_ms`
+	 * and merges a `resolution` block into `detail_json`. Missing or already
+	 * resolved items are silent no-ops — resolution never un-resolves, and
+	 * attention is derived state, so this is journal-free (warren-b853).
+	 */
+	resolveAttentionWithDetail(id: string, resolution: Record<string, unknown>): void {
+		const item = this.getAttentionItem(id);
+		if (item === null || item.resolvedAtMs !== null) return;
+		let base: Record<string, unknown> = {};
+		if (item.detailJson !== null) {
+			try {
+				base = JSON.parse(item.detailJson) as Record<string, unknown>;
+			} catch {
+				base = {};
+			}
+		}
+		this.#ctx.db
+			.query(
+				"UPDATE attention_items SET resolved_at_ms = ?, detail_json = ? WHERE id = ? AND resolved_at_ms IS NULL",
+			)
+			.run(nowMs(this.#ctx), canonicalJson({ ...base, resolution }), id);
 	}
 }
