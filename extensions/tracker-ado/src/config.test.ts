@@ -35,8 +35,30 @@ describe("loadConfig", () => {
 		expect(() => loadConfig({ ...base, ADO_ORG_URL: "" })).toThrow(/ADO_ORG_URL is required/);
 	});
 
-	test("refuses an organization url that is not http", () => {
+	test("refuses an organization url that is not https", () => {
 		expect(() => loadConfig({ ...base, ADO_ORG_URL: "dev.azure.com/acme" })).toThrow(ConfigError);
+		expect(() => loadConfig({ ...base, ADO_ORG_URL: "http://dev.azure.com/acme" })).toThrow(
+			/must be an https URL/,
+		);
+		expect(() => loadConfig({ ...base, ADO_ORG_URL: "https://" })).toThrow(/must be an https URL/);
+	});
+
+	test("refuses credentials, a query or a fragment inside the organization url", () => {
+		expect(() =>
+			loadConfig({ ...base, ADO_ORG_URL: "https://user:pat@dev.azure.com/acme" }),
+		).toThrow(/must not carry credentials/);
+		expect(() => loadConfig({ ...base, ADO_ORG_URL: "https://dev.azure.com/acme?x=1" })).toThrow(
+			/query or fragment/,
+		);
+		expect(() => loadConfig({ ...base, ADO_ORG_URL: "https://dev.azure.com/acme#top" })).toThrow(
+			/query or fragment/,
+		);
+	});
+
+	test("accepts an organization served under its own host", () => {
+		expect(loadConfig({ ...base, ADO_ORG_URL: "https://acme.visualstudio.com" }).orgUrl).toBe(
+			"https://acme.visualstudio.com",
+		);
 	});
 
 	test("takes ADO_BEARER instead of a personal access token", () => {
@@ -55,6 +77,7 @@ describe("loadConfig", () => {
 	test("refuses a port that is not a positive whole number", () => {
 		expect(() => loadConfig({ ...base, TRACKER_PORT: "0" })).toThrow(/positive whole number/);
 		expect(() => loadConfig({ ...base, TRACKER_PORT: "http" })).toThrow(/positive whole number/);
+		expect(() => loadConfig({ ...base, TRACKER_PORT: "65536" })).toThrow(/at most 65535/);
 		expect(loadConfig({ ...base, TRACKER_PORT: "9000" }).port).toBe(9000);
 	});
 

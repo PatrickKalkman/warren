@@ -51,7 +51,7 @@ inside a run.
 | `ADO_PROJECT` | yes | Team project name or id. Every work item route is scoped to it |
 | `ADO_PAT` | yes* | A [personal access token](https://learn.microsoft.com/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) with **Work Items (Read & Write)** |
 | `ADO_BEARER` | yes* | An Entra ID access token, instead of the PAT |
-| `ADO_WIQL` | yes | The [WIQL](https://learn.microsoft.com/azure/devops/boards/queries/wiql-syntax) query that decides which work items warren sees at all |
+| `ADO_WIQL` | yes | The [WIQL](https://learn.microsoft.com/azure/devops/boards/queries/wiql-syntax) query that decides which work items warren sees at all. Flat queries only (`FROM WorkItems`); a tree or one-hop query answers with relations instead of ids and is refused |
 | `ADO_DONE_STATE` | no | State name set on close. Unset picks the first `Completed`-category state of the work item's type |
 | `ADO_BLOCKED_BY_LINK` | no | Link type whose target is a blocker. Default `System.LinkTypes.Dependency-Reverse` |
 | `ADO_BATCH_SIZE` | no | Ids per batch read. Default and maximum 200 |
@@ -138,7 +138,10 @@ the backlog by someone on the board, and moving it to `Closed` just to
 satisfy a close would undo that decision.
 
 If the type defines no `Completed`-category state, or `ADO_DONE_STATE`
-names one the type does not have, the answer is `409 no_close_state`.
+names a state the type does not have or one outside the `Completed` and
+`Removed` categories, the answer is `409 no_close_state`. A close into a
+non-terminal state would never read as closed, so a second close would
+repeat it.
 That is a configuration answer rather than a transient one, and warren
 does not retry a 4xx.
 
@@ -146,7 +149,9 @@ does not retry a 4xx.
 
 | Azure DevOps | This server | Why |
 |---|---|---|
-| 404 | `404 issue_not_found` | the one reserved protocol code |
+| 404 on the work-item read | `404 issue_not_found` | the one reserved protocol code |
+| 404 anywhere else (a type's states, the close PATCH) | `502 upstream_error` | those calls name a type or a state, not the issue, so a 404 there is Azure DevOps misbehaving |
+| 2xx with a payload missing the id, state or list the call reads | `502 upstream_error` | a proxy or a changed API answered; passing it on would read as an empty status |
 | an id that is not a number | `404 issue_not_found`, without a call | no work item can have it; Azure DevOps would answer 400 |
 | 401 / 403 | `502 upstream_unauthorized` | **this container's** credential was rejected. Passing 401 through would send an operator to warren's bearer, the wrong secret |
 | 203 with a sign-in page | `502 upstream_unauthorized` | what Azure DevOps actually serves for a bad or expired PAT on many routes |
@@ -172,6 +177,7 @@ been run against a server install.
 ```bash
 bun test
 bun run typecheck
+bun run lint
 ```
 
 The interesting one is the protocol suite, which needs an Azure DevOps on

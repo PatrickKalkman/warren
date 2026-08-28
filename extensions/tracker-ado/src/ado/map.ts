@@ -82,7 +82,7 @@ function codePoint(value: number, fallback: string): string {
  * criteria apart from the story.
  */
 export function describeWorkItem(item: AdoWorkItem): string | undefined {
-	const fields = item.fields ?? {};
+	const fields = item.fields;
 	const sections: string[] = [];
 	const description = htmlToText(fields["System.Description"]);
 	if (description !== undefined) sections.push(description);
@@ -121,9 +121,9 @@ export function blockedByIds(
 	return ids;
 }
 
-/** The raw state name, or an empty string when the payload carries none. */
+/** The raw state name, in the process's own spelling. */
 function stateName(item: AdoWorkItem): string {
-	return item.fields?.["System.State"] ?? "";
+	return item.fields["System.State"];
 }
 
 /**
@@ -141,16 +141,12 @@ function isTerminalCategory(category: string | undefined): boolean {
 	return category === ADO_COMPLETED_CATEGORY || category === ADO_REMOVED_CATEGORY;
 }
 
-export function toIssueResponse(
-	item: AdoWorkItem,
-	fallbackId: string,
-	linkType: string,
-): RemoteIssueResponse {
-	const title = item.fields?.["System.Title"] ?? undefined;
+export function toIssueResponse(item: AdoWorkItem, linkType: string): RemoteIssueResponse {
+	const title = item.fields["System.Title"] ?? undefined;
 	const description = describeWorkItem(item);
 	const blockedBy = blockedByIds(item.relations, linkType);
 	return {
-		id: typeof item.id === "number" ? String(item.id) : fallbackId,
+		id: String(item.id),
 		status: stateName(item),
 		...(typeof title === "string" && title.length > 0 ? { title } : {}),
 		...(description !== undefined ? { description } : {}),

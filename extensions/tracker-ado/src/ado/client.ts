@@ -6,21 +6,19 @@
  * carrying the status. `fetchImpl` is the seam the tests drive with
  * recorded Azure DevOps payloads.
  *
+ * Every 2xx body is checked for the shape the caller reads before it
+ * leaves this module. A proxy or a changed API that answers 200 with
+ * something else surfaces as a 502 here, not as an empty status or a
+ * TypeError three layers up.
+ *
  * No retries live here. Warren's bridge already retries 429 and 5xx with
  * backoff that honors `Retry-After` (docs/design/issue-tracker.md §5), so
  * this server passes the upstream's answer up rather than growing a
  * second, unsynchronized backoff underneath the first.
  */
 
-import { adoAuthHeader, type AdoTrackerConfig } from "../config.ts";
-import {
-	ADO_API_VERSION,
-	type AdoStatesResponse,
-	type AdoWiqlResponse,
-	type AdoWorkItem,
-	type AdoWorkItemsBatchResponse,
-	type AdoWorkItemTypeState,
-} from "./types.ts";
+import { type AdoTrackerConfig, adoAuthHeader } from "../config.ts";
+import { ADO_API_VERSION, type AdoWorkItem, type AdoWorkItemTypeState } from "./types.ts";
 
 /** A non-2xx or unreachable Azure DevOps. `status` is 0 when the call never landed. */
 export class AdoApiError extends Error {
@@ -56,7 +54,7 @@ export class AdoClient {
 	/** Reads the work item with its relations, which is how blockers arrive. */
 	async getWorkItem(id: number): Promise<AdoWorkItem> {
 		const path = this.witPath(`/workitems/${id}`, { $expand: "relations" });
-		return requireObject(await this.request("GET", path), `GET ${path}`) as AdoWorkItem;
+		return requireWorkItem(await this.request("GET", path), `GET ${path}`);
 	}
 
 	/**
@@ -75,29 +73,40 @@ export class AdoClient {
 		for (let start = 0; start < ids.length; start += this.config.batchSize) {
 			const chunk = ids.slice(start, start + this.config.batchSize);
 			const path = this.witPath("/workitemsbatch");
+			const what = `POST ${path}`;
 			const body = requireObject(
 				await this.request("POST", path, { ids: chunk, fields: [STATE_FIELD] }),
-				`POST ${path}`,
-			) as AdoWorkItemsBatchResponse;
-			for (const item of body.value ?? []) {
-				if (typeof item.id === "number") {
-					statuses[String(item.id)] = item.fields?.[STATE_FIELD] ?? "";
-				}
+				what,
+			);
+			for (const entry of requireArray(body.value, what, "value")) {
+				const item = requireWorkItem(entry, what);
+				statuses[String(item.id)] = item.fields[STATE_FIELD];
 			}
 		}
 		return statuses;
 	}
 
+	/**
+	 * Only a flat query answers with a plain list of ids. A tree or
+	 * one-hop query answers with `workItemRelations` instead, which this
+	 * client does not read, so it refuses rather than reporting nothing.
+	 */
 	private async queryIds(): Promise<number[]> {
 		const limit = this.config.maxWiqlResults;
 		const path = this.witPath("/wiql", { $top: String(limit + 1) });
-		const body = requireObject(
-			await this.request("POST", path, { query: this.config.wiql }),
-			`POST ${path}`,
-		) as AdoWiqlResponse;
+		const what = `POST ${path}`;
+		const body = requireObject(await this.request("POST", path, { query: this.config.wiql }), what);
+		if (body.queryType !== "flat") {
+			throw new AdoApiError(
+				`azure devops ${what} answered a "${String(body.queryType)}" query; ADO_WIQL must be a flat query`,
+				502,
+			);
+		}
 		const ids: number[] = [];
-		for (const ref of body.workItems ?? []) {
-			if (typeof ref.id === "number") ids.push(ref.id);
+		for (const ref of requireArray(body.workItems, what, "workItems")) {
+			const id = requireObject(ref, what).id;
+			if (typeof id !== "number") throw malformed(what, "a workItems entry without a numeric id");
+			ids.push(id);
 		}
 		if (ids.length > limit) {
 			throw new AdoApiError(
@@ -113,8 +122,11 @@ export class AdoClient {
 		const cached = this.statesByType.get(workItemType);
 		if (cached !== undefined) return cached;
 		const path = this.witPath(`/workitemtypes/${encodeURIComponent(workItemType)}/states`);
-		const body = requireObject(await this.request("GET", path), `GET ${path}`) as AdoStatesResponse;
-		const states = body.value ?? [];
+		const what = `GET ${path}`;
+		const body = requireObject(await this.request("GET", path), what);
+		const states = requireArray(body.value, what, "value").map((entry) =>
+			requireObject(entry, what),
+		) as AdoWorkItemTypeState[];
 		this.statesByType.set(workItemType, states);
 		return states;
 	}
@@ -123,10 +135,10 @@ export class AdoClient {
 	async setState(id: number, state: string): Promise<AdoWorkItem> {
 		const path = this.witPath(`/workitems/${id}`);
 		const patch = [{ op: "add", path: `/fields/${STATE_FIELD}`, value: state }];
-		return requireObject(
+		return requireWorkItem(
 			await this.request("PATCH", path, patch, "application/json-patch+json"),
 			`PATCH ${path}`,
-		) as AdoWorkItem;
+		);
 	}
 
 	private witPath(suffix: string, query: Record<string, string> = {}): string {
@@ -177,16 +189,43 @@ export class AdoClient {
 	}
 }
 
+function malformed(what: string, problem: string): AdoApiError {
+	return new AdoApiError(`azure devops ${what} answered 2xx with ${problem}`, 502);
+}
+
 /**
  * A 2xx that carried no object. Every call this client makes expects one,
  * so a proxy answering 200 with an empty body surfaces as the upstream
  * problem it is rather than reaching the mapping as `undefined`.
  */
-function requireObject(body: unknown, what: string): object {
-	if (body === null || typeof body !== "object") {
-		throw new AdoApiError(`azure devops ${what} answered 2xx with no object`, 502);
+function requireObject(body: unknown, what: string): Record<string, unknown> {
+	if (body === null || typeof body !== "object" || Array.isArray(body)) {
+		throw malformed(what, "no object");
 	}
-	return body;
+	return body as Record<string, unknown>;
+}
+
+function requireArray(value: unknown, what: string, field: string): unknown[] {
+	if (!Array.isArray(value)) throw malformed(what, `no "${field}" array`);
+	return value;
+}
+
+/**
+ * A work item is one only with the id and state every operation reads.
+ * The other fields stay optional, because a process template decides
+ * which of them exist.
+ */
+function requireWorkItem(body: unknown, what: string): AdoWorkItem {
+	const item = requireObject(body, what);
+	const fields = item.fields;
+	const state =
+		fields !== null && typeof fields === "object"
+			? (fields as Record<string, unknown>)[STATE_FIELD]
+			: undefined;
+	if (typeof item.id !== "number" || typeof state !== "string") {
+		throw malformed(what, `a work item without a numeric id and a ${STATE_FIELD}`);
+	}
+	return item as unknown as AdoWorkItem;
 }
 
 /**

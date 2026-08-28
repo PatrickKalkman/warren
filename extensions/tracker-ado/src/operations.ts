@@ -88,7 +88,7 @@ export async function readIssue(
 	key: string,
 ): Promise<RemoteIssueResponse> {
 	const item = await readWorkItem(client, key);
-	return toIssueResponse(item, key, config.blockedByLink);
+	return toIssueResponse(item, config.blockedByLink);
 }
 
 export async function readStatuses(client: AdoClient): Promise<Record<string, string>> {
@@ -117,15 +117,15 @@ export async function closeIssue(
 	key: string,
 ): Promise<RemoteIssueResponse> {
 	const current = await readWorkItem(client, key);
-	const type = current.fields?.["System.WorkItemType"] ?? "";
+	const type = current.fields["System.WorkItemType"] ?? "";
 	try {
 		const states = await client.states(type);
-		if (isTerminal(current, states)) return toIssueResponse(current, key, config.blockedByLink);
+		if (isTerminal(current, states)) return toIssueResponse(current, config.blockedByLink);
 
 		const target = pickCloseState(states, config.doneState);
 		if (target === undefined) throw noCloseState(config.doneState, type, key);
-		const closed = await client.setState(current.id ?? Number(key), target);
-		return toIssueResponse(closed, key, config.blockedByLink);
+		const closed = await client.setState(current.id, target);
+		return toIssueResponse(closed, config.blockedByLink);
 	} catch (err) {
 		if (err instanceof TrackerOperationError) throw err;
 		throw toTrackerError(err);

@@ -20,6 +20,8 @@ export type AdoAuth =
 /** Azure DevOps caps a work-items batch read at 200 ids per call. */
 const ADO_MAX_BATCH_SIZE = 200;
 
+const MAX_PORT = 65535;
+
 export interface AdoTrackerConfig {
 	/** Organization root, no trailing slash: `https://dev.azure.com/acme`. */
 	readonly orgUrl: string;
@@ -64,6 +66,7 @@ function positiveInt(
 	env: Readonly<Record<string, string | undefined>>,
 	name: string,
 	fallback: number,
+	max = Number.MAX_SAFE_INTEGER,
 ): number {
 	const raw = optional(env, name);
 	if (raw === undefined) return fallback;
@@ -71,7 +74,35 @@ function positiveInt(
 	if (!Number.isInteger(value) || value <= 0) {
 		throw new ConfigError(`${name} must be a positive whole number, got "${raw}"`);
 	}
+	if (value > max) throw new ConfigError(`${name} must be at most ${max}, got ${value}`);
 	return value;
+}
+
+/**
+ * The organization root, as the client will prefix every path with it.
+ * Azure DevOps is https only. Credentials belong in `ADO_PAT` or
+ * `ADO_BEARER`, and a query or fragment could never survive the paths
+ * appended after it, so each of those is a misconfiguration named at
+ * boot rather than a request that fails later in a shape hard to read.
+ */
+function organizationUrl(env: Readonly<Record<string, string | undefined>>): string {
+	const raw = required(env, "ADO_ORG_URL");
+	let url: URL;
+	try {
+		url = new URL(raw);
+	} catch {
+		throw new ConfigError(`ADO_ORG_URL must be an https URL, got "${raw}"`);
+	}
+	if (url.protocol !== "https:") {
+		throw new ConfigError(`ADO_ORG_URL must be an https URL, got "${raw}"`);
+	}
+	if (url.username !== "" || url.password !== "") {
+		throw new ConfigError("ADO_ORG_URL must not carry credentials; set ADO_PAT or ADO_BEARER");
+	}
+	if (url.search !== "" || url.hash !== "") {
+		throw new ConfigError(`ADO_ORG_URL must not carry a query or fragment, got "${raw}"`);
+	}
+	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 /**
@@ -94,28 +125,18 @@ function resolveAuth(env: Readonly<Record<string, string | undefined>>): AdoAuth
 }
 
 export function loadConfig(env: Readonly<Record<string, string | undefined>>): AdoTrackerConfig {
-	const orgUrl = required(env, "ADO_ORG_URL").replace(/\/+$/, "");
-	if (!/^https?:\/\//.test(orgUrl)) {
-		throw new ConfigError(`ADO_ORG_URL must be an http(s) URL, got "${orgUrl}"`);
-	}
 	const doneState = optional(env, "ADO_DONE_STATE");
 	const bearerToken = optional(env, "TRACKER_BEARER");
-	const batchSize = positiveInt(env, "ADO_BATCH_SIZE", ADO_MAX_BATCH_SIZE);
-	if (batchSize > ADO_MAX_BATCH_SIZE) {
-		throw new ConfigError(
-			`ADO_BATCH_SIZE must be at most ${ADO_MAX_BATCH_SIZE}, the Azure DevOps batch limit, got ${batchSize}`,
-		);
-	}
 	return {
-		orgUrl,
+		orgUrl: organizationUrl(env),
 		project: required(env, "ADO_PROJECT"),
 		auth: resolveAuth(env),
 		wiql: required(env, "ADO_WIQL"),
 		...(doneState !== undefined ? { doneState } : {}),
 		blockedByLink: optional(env, "ADO_BLOCKED_BY_LINK") ?? "System.LinkTypes.Dependency-Reverse",
-		port: positiveInt(env, "TRACKER_PORT", 8080),
+		port: positiveInt(env, "TRACKER_PORT", 8080, MAX_PORT),
 		...(bearerToken !== undefined ? { bearerToken } : {}),
-		batchSize,
+		batchSize: positiveInt(env, "ADO_BATCH_SIZE", ADO_MAX_BATCH_SIZE, ADO_MAX_BATCH_SIZE),
 		maxWiqlResults: positiveInt(env, "ADO_MAX_WIQL_RESULTS", 5000),
 	};
 }

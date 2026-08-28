@@ -49,9 +49,21 @@ const BASE = {
 	ADO_WIQL: "SELECT [System.Id] FROM WorkItems",
 };
 
+function workItem(id: number, state = "New"): Response {
+	return json({ id, fields: { "System.State": state } });
+}
+
+async function failureOf(run: (client: AdoClient) => Promise<unknown>, fetchImpl: typeof fetch) {
+	const failure = await run(new AdoClient(loadConfig(BASE), fetchImpl)).catch(
+		(err: unknown) => err,
+	);
+	expect(failure).toBeInstanceOf(AdoApiError);
+	return failure as AdoApiError;
+}
+
 describe("AdoClient request shape", () => {
 	test("sends basic auth with an empty user name and the token", async () => {
-		const { fetchImpl, requests } = recordingFetch(() => json({ id: 1 }));
+		const { fetchImpl, requests } = recordingFetch(() => workItem(1));
 		await new AdoClient(loadConfig(BASE), fetchImpl).getWorkItem(1);
 		expect(requests[0]?.headers.authorization).toBe(
 			`Basic ${Buffer.from(":pat-123").toString("base64")}`,
@@ -59,14 +71,14 @@ describe("AdoClient request shape", () => {
 	});
 
 	test("sends a bearer when that is how the container is configured", async () => {
-		const { fetchImpl, requests } = recordingFetch(() => json({ id: 1 }));
+		const { fetchImpl, requests } = recordingFetch(() => workItem(1));
 		const config = loadConfig({ ...BASE, ADO_PAT: undefined, ADO_BEARER: "entra-abc" });
 		await new AdoClient(config, fetchImpl).getWorkItem(1);
 		expect(requests[0]?.headers.authorization).toBe("Bearer entra-abc");
 	});
 
 	test("scopes every route to the project, escaped, and pins the api version", async () => {
-		const { fetchImpl, requests } = recordingFetch(() => json({ id: 42 }));
+		const { fetchImpl, requests } = recordingFetch(() => workItem(42));
 		await new AdoClient(loadConfig(BASE), fetchImpl).getWorkItem(42);
 		expect(requests[0]?.url).toBe(
 			"https://dev.azure.com/acme/Team%20Project/_apis/wit/workitems/42?%24expand=relations&api-version=7.1",
@@ -74,7 +86,7 @@ describe("AdoClient request shape", () => {
 	});
 
 	test("moves state with a JSON patch document under its own content type", async () => {
-		const { fetchImpl, requests } = recordingFetch(() => json({ id: 42 }));
+		const { fetchImpl, requests } = recordingFetch(() => workItem(42, "Closed"));
 		await new AdoClient(loadConfig(BASE), fetchImpl).setState(42, "Closed");
 		expect(requests[0]?.method).toBe("PATCH");
 		expect(requests[0]?.headers["content-type"]).toBe("application/json-patch+json");
@@ -88,7 +100,7 @@ describe("AdoClient.issueStatuses", () => {
 	test("queries ids with WIQL, then reads states in batches of the configured size", async () => {
 		const { fetchImpl, requests } = recordingFetch((request) => {
 			if (request.url.includes("/wiql")) {
-				return json({ workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+				return json({ queryType: "flat", workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] });
 			}
 			const ids = (JSON.parse(request.body ?? "{}") as { ids: number[] }).ids;
 			return json({
@@ -108,18 +120,30 @@ describe("AdoClient.issueStatuses", () => {
 	});
 
 	test("answers an empty map without a batch read when the query selects nothing", async () => {
-		const { fetchImpl, requests } = recordingFetch(() => json({ workItems: [] }));
+		const { fetchImpl, requests } = recordingFetch(() =>
+			json({ queryType: "flat", workItems: [] }),
+		);
 		expect(await new AdoClient(loadConfig(BASE), fetchImpl).issueStatuses()).toEqual({});
 		expect(requests).toHaveLength(1);
 	});
 
 	test("asks for one past the cap and fails loud rather than truncating", async () => {
 		const { fetchImpl, requests } = recordingFetch(() =>
-			json({ workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] }),
+			json({ queryType: "flat", workItems: [{ id: 1 }, { id: 2 }, { id: 3 }] }),
 		);
 		const client = new AdoClient(loadConfig({ ...BASE, ADO_MAX_WIQL_RESULTS: "2" }), fetchImpl);
 		await expect(client.issueStatuses()).rejects.toThrow(/ADO_MAX_WIQL_RESULTS/);
 		expect(new URL(requests[0]?.url ?? "").searchParams.get("$top")).toBe("3");
+	});
+
+	test("refuses a query that is not flat, because its answer carries no id list", async () => {
+		const { fetchImpl, requests } = recordingFetch(() =>
+			json({ queryType: "tree", workItemRelations: [{ target: { id: 1 } }] }),
+		);
+		const failure = await failureOf((client) => client.issueStatuses(), fetchImpl);
+		expect(failure.status).toBe(502);
+		expect(failure.message).toContain('"tree"');
+		expect(requests).toHaveLength(1);
 	});
 });
 
@@ -215,5 +239,52 @@ describe("AdoClient response handling", () => {
 			.getWorkItem(9)
 			.catch((err: unknown) => err);
 		expect((failure as AdoApiError).message).toContain("not JSON");
+	});
+});
+
+describe("AdoClient malformed 2xx payloads", () => {
+	const cases: [string, unknown, (client: AdoClient) => Promise<unknown>][] = [
+		["a work item without an id", { fields: { "System.State": "New" } }, (c) => c.getWorkItem(9)],
+		["a work item without a state", { id: 9, fields: {} }, (c) => c.getWorkItem(9)],
+		[
+			"a work item whose state is not text",
+			{ id: 9, fields: { "System.State": 1 } },
+			(c) => c.getWorkItem(9),
+		],
+		["a patched item without a state", { id: 9 }, (c) => c.setState(9, "Closed")],
+		["a query answer without workItems", { queryType: "flat" }, (c) => c.issueStatuses()],
+		[
+			"a query answer whose workItems is not a list",
+			{ queryType: "flat", workItems: {} },
+			(c) => c.issueStatuses(),
+		],
+		[
+			"a query entry without an id",
+			{ queryType: "flat", workItems: [{ url: "x" }] },
+			(c) => c.issueStatuses(),
+		],
+		["a states answer without value", { count: 0 }, (c) => c.states("Bug")],
+		["a states answer whose value is not a list", { value: "Closed" }, (c) => c.states("Bug")],
+		["a list where an object was expected", [], (c) => c.getWorkItem(9)],
+	];
+
+	for (const [name, body, run] of cases) {
+		test(`answers 502 for ${name}`, async () => {
+			const { fetchImpl } = recordingFetch(() => json(body));
+			const failure = await failureOf(run, fetchImpl);
+			expect(failure.status).toBe(502);
+			expect(failure.message).toContain("answered 2xx with");
+		});
+	}
+
+	test("answers 502 when a batch entry is not a work item", async () => {
+		const { fetchImpl } = recordingFetch((request) =>
+			request.url.includes("/wiql")
+				? json({ queryType: "flat", workItems: [{ id: 1 }] })
+				: json({ count: 1, value: [{ id: 1 }] }),
+		);
+		const failure = await failureOf((client) => client.issueStatuses(), fetchImpl);
+		expect(failure.status).toBe(502);
+		expect(failure.message).toContain("System.State");
 	});
 });

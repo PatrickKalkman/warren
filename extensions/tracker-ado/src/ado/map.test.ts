@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AGILE_STATES as AGILE } from "../fake-ado.ts";
 import {
 	blockedByIds,
 	describeWorkItem,
@@ -9,9 +10,21 @@ import {
 	toIssueResponse,
 	workItemIdFromUrl,
 } from "./map.ts";
-import { AGILE_STATES as AGILE } from "../fake-ado.ts";
+import type { AdoRelation, AdoWorkItem, AdoWorkItemFields } from "./types.ts";
 
 const LINK = "System.LinkTypes.Dependency-Reverse";
+
+/** A work item as the client hands it on: id and state present, the rest as given. */
+function workItem(
+	fields: Partial<AdoWorkItemFields> = {},
+	relations?: readonly AdoRelation[],
+): AdoWorkItem {
+	return {
+		id: 7,
+		fields: { "System.State": "Active", ...fields },
+		...(relations !== undefined ? { relations } : {}),
+	};
+}
 
 describe("parseWorkItemId", () => {
 	test("accepts a decimal work item number", () => {
@@ -58,25 +71,25 @@ describe("htmlToText", () => {
 
 describe("describeWorkItem", () => {
 	test("labels the sections the process template splits the narrative across", () => {
-		const text = describeWorkItem({
-			fields: {
+		const text = describeWorkItem(
+			workItem({
 				"System.Description": "<div>Story</div>",
 				"Microsoft.VSTS.TCM.ReproSteps": "<div>Steps</div>",
 				"Microsoft.VSTS.Common.AcceptanceCriteria": "<ul><li>One</li><li>Two</li></ul>",
-			},
-		});
+			}),
+		);
 		expect(text).toBe("Story\n\nRepro steps:\nSteps\n\nAcceptance criteria:\nOne\nTwo");
 	});
 
 	test("carries a bug's repro steps when it has no description", () => {
-		expect(describeWorkItem({ fields: { "Microsoft.VSTS.TCM.ReproSteps": "Crash" } })).toBe(
+		expect(describeWorkItem(workItem({ "Microsoft.VSTS.TCM.ReproSteps": "Crash" }))).toBe(
 			"Repro steps:\nCrash",
 		);
 	});
 
 	test("answers undefined when every field is empty", () => {
-		expect(describeWorkItem({ fields: { "System.Description": null } })).toBeUndefined();
-		expect(describeWorkItem({})).toBeUndefined();
+		expect(describeWorkItem(workItem({ "System.Description": null }))).toBeUndefined();
+		expect(describeWorkItem(workItem())).toBeUndefined();
 	});
 });
 
@@ -123,14 +136,14 @@ describe("blockedByIds", () => {
 
 describe("isTerminal", () => {
 	test("is true in the Completed and Removed categories", () => {
-		expect(isTerminal({ fields: { "System.State": "Closed" } }, AGILE)).toBe(true);
-		expect(isTerminal({ fields: { "System.State": "removed" } }, AGILE)).toBe(true);
+		expect(isTerminal(workItem({ "System.State": "Closed" }), AGILE)).toBe(true);
+		expect(isTerminal(workItem({ "System.State": "removed" }), AGILE)).toBe(true);
 	});
 
 	test("is false elsewhere, and for a state the process does not define", () => {
-		expect(isTerminal({ fields: { "System.State": "Resolved" } }, AGILE)).toBe(false);
-		expect(isTerminal({ fields: { "System.State": "Mystery" } }, AGILE)).toBe(false);
-		expect(isTerminal({}, AGILE)).toBe(false);
+		expect(isTerminal(workItem({ "System.State": "Resolved" }), AGILE)).toBe(false);
+		expect(isTerminal(workItem({ "System.State": "Mystery" }), AGILE)).toBe(false);
+		expect(isTerminal(workItem({ "System.State": "" }), AGILE)).toBe(false);
 	});
 });
 
@@ -163,16 +176,9 @@ describe("toIssueResponse", () => {
 	test("maps every field and omits the empty ones", () => {
 		expect(
 			toIssueResponse(
-				{
-					id: 7,
-					fields: {
-						"System.Title": "Title",
-						"System.State": "Active",
-						"System.Description": "<p>Body</p>",
-					},
-					relations: [{ rel: LINK, url: "https://x/_apis/wit/workItems/3" }],
-				},
-				"7",
+				workItem({ "System.Title": "Title", "System.Description": "<p>Body</p>" }, [
+					{ rel: LINK, url: "https://x/_apis/wit/workItems/3" },
+				]),
 				LINK,
 			),
 		).toEqual({
@@ -184,7 +190,10 @@ describe("toIssueResponse", () => {
 		});
 	});
 
-	test("falls back to the requested id and an empty status on a bare payload", () => {
-		expect(toIssueResponse({}, "7", LINK)).toEqual({ id: "7", status: "" });
+	test("omits title, description and blockers when the payload carries none", () => {
+		expect(toIssueResponse(workItem({ "System.Title": "" }), LINK)).toEqual({
+			id: "7",
+			status: "Active",
+		});
 	});
 });
