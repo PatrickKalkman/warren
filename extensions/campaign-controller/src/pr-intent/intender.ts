@@ -37,6 +37,7 @@ import {
 } from "../github/pr-request.ts";
 import { isValidRefName } from "../github-grammar.ts";
 import type { CampaignManifest } from "../manifest.ts";
+import { interpolateTemplate, resolvePrBodyContract } from "../pr-body-contract.ts";
 import { type RepositoryPolicy, validateRepositoryPolicy } from "../repository-policy.ts";
 import type { CampaignStateStore } from "../store/state-store.ts";
 import type {
@@ -218,7 +219,7 @@ export function renderAndJournalPrIntent(
 	requireHeadDiffersFromBase(branch, baseBranch, workItem);
 
 	const title = renderTitle(input);
-	const body = renderBody(manifest, input, run, branch);
+	const body = renderBody(policy.profileId, manifest, input, run, branch);
 	const intent = renderCrossForkPullRequestIntent({
 		upstreamOwner: manifest.upstream.owner,
 		upstreamRepo: manifest.upstream.repo,
@@ -576,52 +577,50 @@ function renderTitle(input: PrIntentInput): string {
 	return `${input.issue.title} (#${input.issue.number})`;
 }
 
-/** The repository-policy-compliant PR body: fully deterministic. */
+/**
+ * The repository-policy-compliant PR body: fully deterministic, rendered
+ * by walking the profile's PR-body contract (warren-e361). The intender
+ * declares no headings of its own — every section heading, the
+ * disclosure paragraph, and the footer come from the contract data.
+ */
 function renderBody(
+	profileId: string,
 	manifest: CampaignManifest,
 	input: PrIntentInput,
 	run: ActionRow,
 	branch: string,
 ): string {
-	const evidence = input.summary.evidence
+	const contract = resolvePrBodyContract(profileId);
+	const evidenceBullets = input.summary.evidence
 		.filter((line) => line.trim().length > 0)
 		.map((line) => `- ${line}`);
-	const lines = [
-		`Closes #${input.issue.number}`,
-		"",
-		"## AI disclosure",
-		"",
-		`This contribution was prepared by an AI agent under the warren campaign \`${manifest.campaignId}\` (agent \`${manifest.warren.agent}\` on \`${manifest.warren.provider}/${manifest.warren.model}\`), approved by ${manifest.approval.approvedBy}. It follows the repository's AI-assisted contribution policy: the work is disclosed here and carries validation evidence below.`,
-		"",
-		"## What Problem This Solves",
-		"",
-		input.summary.problem,
-		"",
-		"## Solution",
-		"",
-		input.summary.solution,
-		"",
-		"## User impact",
-		"",
-		input.summary.userImpact,
-		"",
-		"## Evidence",
-		"",
-		...evidence,
-		"",
-		"## Warren run reference",
-		"",
-		`- Warren run \`${run.resultRunId}\` (state: succeeded)`,
-		`- Fork branch \`${manifest.fork.owner}:${branch}\` — maintainers may push edits to this branch (maintainer_can_modify)`,
-		`- Issue: #${input.issue.number}`,
-		"",
-		"## Operator review notes",
-		"",
-		input.summary.operatorNotes,
-		"",
-		"---",
-		"",
-		`Opened by the warren campaign controller from a journaled, owner-approved cross-fork intent (campaign \`${manifest.campaignId}\`). The exact request was journaled before any posting; when the campaign policy does not enable the create mutation, this body exists only as dry-run evidence and no pull request is opened.`,
-	];
+	const context: Record<string, string> = {
+		campaignId: manifest.campaignId,
+		agent: manifest.warren.agent,
+		provider: manifest.warren.provider,
+		model: manifest.warren.model,
+		approvedBy: manifest.approval.approvedBy,
+		runId: run.resultRunId ?? "",
+		forkOwner: manifest.fork.owner,
+		branch,
+		issueRef: String(input.issue.number),
+		problem: input.summary.problem,
+		solution: input.summary.solution,
+		userImpact: input.summary.userImpact,
+		operatorNotes: input.summary.operatorNotes,
+		evidenceBullets: evidenceBullets.join("\n"),
+	};
+	const lines: string[] = [interpolateTemplate(contract.closesTemplate, context), ""];
+	for (const section of contract.sections) {
+		const content = interpolateTemplate(section.bodyTemplate, context);
+		if (section.required && content.trim().length === 0) {
+			throw new PrIntentRefusal(
+				section.key === "evidence" ? "evidence_absent" : "summary_incomplete",
+				`PR-body contract section '${section.key}' is required but its content is empty`,
+			);
+		}
+		lines.push(`## ${section.heading}`, "", content, "");
+	}
+	lines.push(interpolateTemplate(contract.footerTemplate, context));
 	return lines.join("\n");
 }

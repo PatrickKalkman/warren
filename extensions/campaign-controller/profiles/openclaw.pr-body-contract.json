@@ -1,0 +1,50 @@
+{
+	"contractVersion": 1,
+	"profileId": "openclaw",
+	"closesTemplate": "Closes #{issueRef}",
+	"sections": [
+		{
+			"key": "disclosure",
+			"heading": "AI disclosure",
+			"required": true,
+			"bodyTemplate": "This contribution was prepared by an AI agent under the warren campaign `{campaignId}` (agent `{agent}` on `{provider}/{model}`), approved by {approvedBy}. It follows the repository's AI-assisted contribution policy: the work is disclosed here and carries validation evidence below."
+		},
+		{
+			"key": "problem",
+			"heading": "What Problem This Solves",
+			"required": true,
+			"bodyTemplate": "{problem}"
+		},
+		{
+			"key": "solution",
+			"heading": "Solution",
+			"required": true,
+			"bodyTemplate": "{solution}"
+		},
+		{
+			"key": "userImpact",
+			"heading": "User impact",
+			"required": true,
+			"bodyTemplate": "{userImpact}"
+		},
+		{
+			"key": "evidence",
+			"heading": "Evidence",
+			"required": true,
+			"bodyTemplate": "{evidenceBullets}"
+		},
+		{
+			"key": "runReference",
+			"heading": "Warren run reference",
+			"required": true,
+			"bodyTemplate": "- Warren run `{runId}` (state: succeeded)\n- Fork branch `{forkOwner}:{branch}` — maintainers may push edits to this branch (maintainer_can_modify)\n- Issue: #{issueRef}"
+		},
+		{
+			"key": "operatorNotes",
+			"heading": "Operator review notes",
+			"required": true,
+			"bodyTemplate": "{operatorNotes}"
+		}
+	],
+	"footerTemplate": "---\n\nOpened by the warren campaign controller from a journaled, owner-approved cross-fork intent (campaign `{campaignId}`). The exact request was journaled before any posting; when the campaign policy does not enable the create mutation, this body exists only as dry-run evidence and no pull request is opened."
+}

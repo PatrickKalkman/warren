@@ -15,7 +15,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { Glob } from "bun";
 import {
 	admitWorkItem,
 	approveCampaign,
@@ -30,6 +31,7 @@ import { ReadOnlyGithubClient } from "../github/client.ts";
 import { FakeGithubServer } from "../github/fake-server.ts";
 import { BunFetchGithubTransport } from "../github/http-transport.ts";
 import { MUTATION_FLAGS } from "../mutations.ts";
+import { interpolateTemplate, resolvePrBodyContract } from "../pr-body-contract.ts";
 import { CampaignStateStore } from "../store/state-store.ts";
 import type { ActionRow, CampaignRow, WorkItemRow } from "../store/types.ts";
 import { WarrenClient } from "../warren-client.ts";
@@ -281,7 +283,7 @@ describe("renderAndJournalPrIntent", () => {
 		expect(identity?.prNumber).toBeNull();
 	});
 
-	test("the golden body carries every policy-required section", async () => {
+	test("the golden body carries every contract-declared section, in order", async () => {
 		const h = await harness({});
 		const result = renderAndJournalPrIntent(h.store, {
 			...intentInput(),
@@ -289,20 +291,58 @@ describe("renderAndJournalPrIntent", () => {
 			workItemId: h.workItem.id,
 		});
 		const body = result.intent.body.body;
-		expect(body).toContain("Closes #812");
-		expect(body).toContain("## AI disclosure");
-		expect(body).toContain("## What Problem This Solves");
-		expect(body).toContain("## Solution");
-		expect(body).toContain("## User impact");
-		expect(body).toContain("## Evidence");
-		expect(body).toContain("## Warren run reference");
-		expect(body).toContain("## Operator review notes");
-		expect(body).toContain("maintainers may push edits");
-		expect(body).toContain("journaled, owner-approved cross-fork intent");
+		const contract = resolvePrBodyContract("openclaw");
+		expect(body).toContain(interpolateTemplate(contract.closesTemplate, { issueRef: "812" }));
+		let offset = 0;
+		for (const section of contract.sections) {
+			const heading = `## ${section.heading}`;
+			const at = body.indexOf(heading, offset);
+			expect(at).toBeGreaterThanOrEqual(0);
+			offset = at;
+		}
+		const footer = interpolateTemplate(contract.footerTemplate, {
+			campaignId: (JSON.parse(h.campaign.manifestJson) as { campaignId: string }).campaignId,
+		});
+		expect(body.endsWith(footer)).toBe(true);
+		// The run-reference section carries the fork-branch fact verbatim.
+		expect(body).toContain(BRANCH);
 		expect(result.intent.body.head).toBe(`warren-run-bot:${BRANCH}`);
 		expect(result.intent.body.base).toBe("main");
 		expect(result.intent.body.draft).toBe(true);
 		expect(result.intent.body.maintainer_can_modify).toBe(true);
+	});
+
+	test("renders and journals the exact generic-profile request (default golden)", async () => {
+		const policy = { ...basePolicy(), profileId: "default" };
+		const h = await harness({ policy });
+		const result = renderAndJournalPrIntent(h.store, {
+			...intentInput({ policy }),
+			campaignId: h.campaign.id,
+			workItemId: h.workItem.id,
+		});
+		const machine = prIntentMachineJson(result);
+		const snapshot = { requestDigest: machine.requestDigest, request: machine.request };
+		const goldenPath = join(import.meta.dir, "__golden__", "default-pr-intent.json");
+
+		if (UPDATE) {
+			mkdirSync(join(import.meta.dir, "__golden__"), { recursive: true });
+			writeFileSync(goldenPath, `${JSON.stringify(snapshot, null, "\t")}\n`);
+		}
+		expect(existsSync(goldenPath)).toBe(true);
+		const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as typeof snapshot;
+		expect(snapshot).toEqual(golden);
+
+		// The generic profile renders its own headings, not the openclaw gate's.
+		const contract = resolvePrBodyContract("default");
+		const openclaw = resolvePrBodyContract("openclaw");
+		for (const section of contract.sections) {
+			if (section.key === "disclosure") continue;
+			const openclawHeading = openclaw.sections.find((s) => s.key === section.key)?.heading;
+			if (openclawHeading !== section.heading) {
+				expect(result.intent.body.body).not.toContain(`## ${openclawHeading}`);
+			}
+			expect(result.intent.body.body).toContain(`## ${section.heading}`);
+		}
 	});
 
 	test("a double tick produces exactly one intent, not a second journal row", async () => {
@@ -605,5 +645,32 @@ describe("no production GitHub method can post the rendered intent", () => {
 		expect(intenderSource.includes("GithubTransport")).toBe(false);
 		expect(intenderSource.includes("http-transport")).toBe(false);
 		expect(intenderSource.includes("fetch(")).toBe(false);
+	});
+});
+
+describe("pr-body contract data", () => {
+	test("the PR-body contract ships as profile data, not intender literals", async () => {
+		const headings = [
+			...resolvePrBodyContract("openclaw").sections.map((s) => s.heading),
+			...resolvePrBodyContract("default").sections.map((s) => s.heading),
+		];
+		expect(headings.length).toBeGreaterThan(0);
+
+		const root = join(import.meta.dir, "..", "..");
+		const sources = [...new Glob("src/**/*.ts").scanSync(root)].filter(
+			(path) => !path.includes("__golden__"),
+		);
+		expect(sources.length).toBeGreaterThan(10);
+
+		const offenders: string[] = [];
+		for (const path of sources) {
+			const text = await Bun.file(path).text();
+			for (const heading of headings) {
+				if (text.includes(`## ${heading}`)) {
+					offenders.push(`${relative(root, path)}: "${heading}"`);
+				}
+			}
+		}
+		expect(offenders).toEqual([]);
 	});
 });
