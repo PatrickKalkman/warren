@@ -50,8 +50,8 @@ inside a run.
 | `ADO_ORG_URL` | yes | Organization root, no trailing slash: `https://dev.azure.com/acme` |
 | `ADO_PROJECT` | yes | Team project name or id. Every work item route is scoped to it |
 | `ADO_PAT` | yes* | A [personal access token](https://learn.microsoft.com/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) with **Work Items (Read & Write)** |
-| `ADO_BEARER` | yes* | An Entra ID access token, instead of the PAT |
-| `ADO_WIQL` | yes | The [WIQL](https://learn.microsoft.com/azure/devops/boards/queries/wiql-syntax) query that decides which work items warren sees at all. Flat queries only (`FROM WorkItems`); a tree or one-hop query answers with relations instead of ids and is refused |
+| `ADO_BEARER` | yes* | An Entra ID access token, instead of the PAT. Read once at boot and never refreshed: when it expires, restart the container with a fresh one |
+| `ADO_WIQL` | yes | The [WIQL](https://learn.microsoft.com/azure/devops/boards/queries/wiql-syntax) query behind `GET /issue-statuses`, which is the list warren claims work from. Flat queries only (`FROM WorkItems`); a tree or one-hop query answers with relations instead of ids and is refused |
 | `ADO_DONE_STATE` | no | State name set on close. Unset picks the first `Completed`-category state of the work item's type |
 | `ADO_BLOCKED_BY_LINK` | no | Link type whose target is a blocker. Default `System.LinkTypes.Dependency-Reverse` |
 | `ADO_BATCH_SIZE` | no | Ids per batch read. Default and maximum 200 |
@@ -61,13 +61,30 @@ inside a run.
 | `TRACKER_BEARER` | no | The token **warren** must present to this server |
 
 \* Exactly one of the two auth modes. Setting both is refused rather than
-resolved by precedence.
+resolved by precedence. The PAT is the mode for a deployment: it lives as
+long as its expiry on the Azure DevOps side and needs no refresh flow.
+`ADO_BEARER` exists for a setup that already mints Entra ID access tokens
+(a smoke test, a short-lived job); such a token lasts about an hour, this
+server never refreshes it, and after expiry every call answers
+`502 upstream_unauthorized` until a restart supplies a fresh one.
 
 `TRACKER_BEARER` and the Azure DevOps credential are unrelated. One is
 what warren shows this container, the other is what this container shows
 Azure DevOps.
 
-A query that scopes warren to what the deployment may pick up looks like:
+**What the query does and does not scope.** The query feeds
+`GET /issue-statuses` only, and that map is what warren discovers and
+claims work from. A read or a close of a specific id
+(`GET /issues/{id}`, `POST /issues/{id}/close`) goes straight to the work
+item: warren asks for ids it was handed directly too, through
+`POST /plan-runs` with an explicit issue list or a dispatch that names
+one, and those may lie outside the query on purpose. The access boundary
+is therefore the credential's scope and `ADO_PROJECT`, not the query. A
+work item the PAT can reach inside the project can be read and closed by
+whoever can call this server, which is why `TRACKER_BEARER` matters.
+
+A query that scopes warren's pick-up list to what the deployment may
+work on looks like:
 
 ```sql
 SELECT [System.Id] FROM WorkItems

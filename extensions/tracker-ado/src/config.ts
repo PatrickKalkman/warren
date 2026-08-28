@@ -28,7 +28,11 @@ export interface AdoTrackerConfig {
 	/** Team project name or id. Every work-item route is scoped to it. */
 	readonly project: string;
 	readonly auth: AdoAuth;
-	/** The WIQL query that decides which work items warren sees at all. */
+	/**
+	 * The WIQL query behind the status map, which is the list warren
+	 * claims work from. A read or close of a specific id does not consult
+	 * it: the access boundary is the credential and the project.
+	 */
 	readonly wiql: string;
 	/** State name set on close. Unset picks the first `Completed`-category state. */
 	readonly doneState?: string;
@@ -116,7 +120,8 @@ function organizationUrl(env: Readonly<Record<string, string | undefined>>): str
 /**
  * A personal access token is the documented Azure DevOps path and goes
  * over basic auth with an empty user name. `ADO_BEARER` covers a setup
- * that issues an Entra ID access token instead. Configuring both is a
+ * that already mints an Entra ID access token; it is read once and never
+ * refreshed, so an expired one means a restart. Configuring both is a
  * mistake worth naming rather than resolving by precedence.
  */
 function resolveAuth(env: Readonly<Record<string, string | undefined>>): AdoAuth {
