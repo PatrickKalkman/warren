@@ -78,7 +78,8 @@ Honest replacements for old sequencing steps with no payer. Each entry names its
 - **Integration breadth: Linear, GitLab, and Forgejo/Gitea.** The contracts are ready,
   but no waiting deployment currently pays for another implementation. Jira shipped as
   the first external tracker behind `warren-tracker/v1` (v0.19.0,
-  `extensions/tracker-jira/`). Linear follows the same path when a payer appears.
+  `extensions/tracker-jira/`), and Azure DevOps Boards followed as the second
+  (`extensions/tracker-ado/`). Linear follows the same path when a payer appears.
 
   GitLab remains the intended second in-core Forge. Warren-1b6f is no-regret pre-work,
   and warren-7ba8 is the provider issue. Forgejo/Gitea follows GitLab when a real
