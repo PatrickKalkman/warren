@@ -66,6 +66,8 @@
 	"requiredChecks": ["openclaw/ci-gate"],
 	"mutations": {
 		"createPullRequest": false,
+		"followUpPush": false,
+		"updatePullRequest": false,
 		"pushCommits": false,
 		"updateBranch": false,
 		"postComment": false,
