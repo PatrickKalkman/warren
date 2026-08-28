@@ -43,9 +43,10 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = {
 /**
  * Flatten the HTML Azure DevOps stores in its rich-text fields to plain
  * text. Block ends become newlines, every other tag disappears, and the
- * entities the editor emits are decoded. Runs of blank lines collapse to
- * one, which keeps a description readable in a prompt without pretending
- * to be a renderer.
+ * entities the editor emits are decoded. Azure DevOps pads the markup it
+ * saves with spaces between closing tags (`</li> </ul>`), so each line is
+ * trimmed on both ends. Runs of blank lines collapse to one, which keeps
+ * a description readable in a prompt without pretending to be a renderer.
  */
 export function htmlToText(html: unknown): string | undefined {
 	if (typeof html !== "string") return undefined;
@@ -54,6 +55,7 @@ export function htmlToText(html: unknown): string | undefined {
 		.replace(TAG, "")
 		.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
 		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n[ \t]+/g, "\n")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
 	return text.length > 0 ? text : undefined;

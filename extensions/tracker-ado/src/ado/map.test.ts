@@ -42,6 +42,11 @@ describe("htmlToText", () => {
 		expect(htmlToText("<p>A</p><p><br></p><p><br/></p><p>B</p>")).toBe("A\n\nB");
 	});
 
+	test("trims the padding azure devops adds between closing tags when it saves", () => {
+		// The shape the service stored for `<ul><li>one</li><li>two</li></ul><p>Para</p>`.
+		expect(htmlToText("<ul><li>one </li><li>two </li> </ul><p>Para </p>")).toBe("one\ntwo\nPara");
+	});
+
 	test("decodes the entities the editor emits", () => {
 		expect(htmlToText("a&nbsp;&amp;&nbsp;b &lt;c&gt; &quot;d&quot; &#39;e&#39; &#x41;")).toBe(
 			"a & b <c> \"d\" 'e' A",

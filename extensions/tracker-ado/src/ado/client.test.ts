@@ -160,15 +160,28 @@ describe("AdoClient response handling", () => {
 	test("treats the 203 sign-in page as a failure carrying that status", async () => {
 		const { fetchImpl } = recordingFetch(
 			() =>
-				new Response("<html>Sign in</html>", {
-					status: 203,
-					headers: { "content-type": "text/html" },
-				}),
+				new Response(
+					'<!DOCTYPE html>\r\n<html lang="en-US">\r\n<head><title>\r\n\t\r\n  Azure DevOps Services | Sign In\r\n</title><meta charset="utf-8"></head><body>...</body></html>',
+					{ status: 203, headers: { "content-type": "text/html" } },
+				),
 		);
 		const failure = await new AdoClient(loadConfig(BASE), fetchImpl)
 			.getWorkItem(9)
 			.catch((err: unknown) => err);
 		expect((failure as AdoApiError).status).toBe(203);
+		expect((failure as AdoApiError).message).toEndWith(
+			'failed: 203 html page "Azure DevOps Services | Sign In"',
+		);
+	});
+
+	test("names an untitled html error body without quoting its markup", async () => {
+		const { fetchImpl } = recordingFetch(
+			() => new Response("<html><body>nope</body></html>", { status: 503 }),
+		);
+		const failure = await new AdoClient(loadConfig(BASE), fetchImpl)
+			.getWorkItem(9)
+			.catch((err: unknown) => err);
+		expect((failure as AdoApiError).message).toEndWith("failed: 503 html page");
 	});
 
 	test("carries Retry-After off a rate limit", async () => {

@@ -197,15 +197,31 @@ warren-tracker/v1 conformance: 7 case groups against http://127.0.0.1:8793
 PASS — the server conforms to warren-tracker/v1 (experimental)
 ```
 
-**Not verified.** No call has ever reached a real Azure DevOps
-organization. FakeAdo is a statement of what this tracker EXPECTS Azure
-DevOps to return, not evidence of what it does return. The first live run
-against a real project is what confirms or corrects it, and the places it
-would show up are narrow: the HTML the rich-text editor stores (the
-flattener handles block tags, `<br>`, and the common entities), the
-`rel` spelling of a dependency link on a project whose admin customized
-link types, and whether a bad PAT arrives as 401 or as the 203 sign-in
-page on the routes this tracker uses.
+**Verified live.** A smoke run against a real Azure DevOps Services
+organization (Agile process, uncustomized link types) exercised every
+route with three throwaway work items: a User Story with an HTML
+description and acceptance criteria, a Task carrying a
+`System.LinkTypes.Dependency-Reverse` link to that story, and a Bug
+moved to `Closed` beforehand. What it established:
+
+- `GET /issues/{id}` flattens the stored HTML as intended. The service
+  rewrites the markup it saves, padding closing tags with spaces
+  (`</li> </ul><p>`), which surfaced as a leading space on the next line
+  until the flattener started trimming both ends of every line.
+- The predecessor link comes back with the `rel` spelling this tracker
+  assumes, so `blockedBy` carries the story's id.
+- `POST /issues/{id}/close` moves a `New` Task straight to `Closed`, and
+  on an already-`Closed` Bug it makes no PATCH and returns the item.
+- A bad PAT never arrives as a 401. Both `dev.azure.com/{org}` and
+  `{org}.visualstudio.com` answer 302 to a sign-in page, which `fetch`
+  follows into a 203 with `text/html`. The tracker reports it as 502
+  `upstream_unauthorized` with the page title in place of its markup.
+- Both hostnames serve the REST routes identically with a valid PAT.
+
+**Not verified.** A project whose admin customized link types (the
+`ADO_BLOCKED_BY_LINK` knob exists for that), a WIQL result past
+`ADO_MAX_WIQL_RESULTS`, a 429 from the real service, and Azure DevOps
+Server (on-premises), whose sign-in behaviour may differ.
 
 ## Friction
 

@@ -192,8 +192,10 @@ function requireObject(body: unknown, what: string): object {
 /**
  * Azure DevOps error bodies are JSON with a `message` most of the time
  * and an HTML sign-in page the rest of the time, so the text is only ever
- * a diagnostic string. It is bounded because it lands in this server's
- * logs and in the message warren surfaces.
+ * a diagnostic string. An HTML page reduces to its title, because the
+ * markup says nothing and the title ("Azure DevOps Services | Sign In")
+ * says everything. It is bounded because it lands in this server's logs
+ * and in the message warren surfaces.
  */
 async function errorText(response: Response): Promise<string> {
 	try {
@@ -204,6 +206,9 @@ async function errorText(response: Response): Promise<string> {
 		} catch {
 			// Not JSON; fall through to the raw text.
 		}
+		const title = /<title>([\s\S]*?)<\/title>/i.exec(text);
+		if (title?.[1] !== undefined) return `html page "${title[1].replace(/\s+/g, " ").trim()}"`;
+		if (/^\s*<(!doctype|html)/i.test(text)) return "html page";
 		return text.slice(0, 300);
 	} catch {
 		return "<unreadable body>";
