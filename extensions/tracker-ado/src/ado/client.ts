@@ -33,6 +33,14 @@ export class AdoApiError extends Error {
 	}
 }
 
+/** Azure DevOps did not finish answering within `timeoutMs`. */
+export class AdoTimeoutError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "AdoTimeoutError";
+	}
+}
+
 /**
  * The configured WIQL selected more than `maxWiqlResults` work items.
  * Azure DevOps answered fine; the configuration is what is wrong, and it
@@ -177,16 +185,20 @@ export class AdoClient {
 			authorization: adoAuthHeader(this.config.auth),
 		};
 		if (body !== undefined) headers["content-type"] = contentType;
+		// One deadline covers the connection, the headers and the body: a
+		// stalled body read hangs a handler just as well as a stalled
+		// connect, and warren's retry cannot begin until this call ends.
+		const signal = AbortSignal.timeout(this.config.timeoutMs);
 		let response: Response;
 		try {
 			response = await this.fetchImpl(`${this.config.orgUrl}${path}`, {
 				method,
 				headers,
+				signal,
 				...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 			});
 		} catch (err) {
-			const reason = err instanceof Error ? err.message : String(err);
-			throw new AdoApiError(`azure devops unreachable: ${reason}`, 0);
+			throw this.transportFailure(err, `${method} ${path}`);
 		}
 		// A rejected or missing credential comes back as 203 with the
 		// sign-in page rather than as a 401, so a 2xx that is not JSON is
@@ -199,7 +211,12 @@ export class AdoClient {
 			);
 		}
 		if (response.status === 204) return undefined;
-		const text = await response.text();
+		let text: string;
+		try {
+			text = await response.text();
+		} catch (err) {
+			throw this.transportFailure(err, `${method} ${path}`);
+		}
 		if (text.trim() === "") return undefined;
 		try {
 			return JSON.parse(text) as unknown;
@@ -207,6 +224,22 @@ export class AdoClient {
 			throw new AdoApiError(`azure devops ${method} ${path} returned a body that is not JSON`, 502);
 		}
 	}
+
+	/** A call that never produced an answer: the deadline passed, or the network failed. */
+	private transportFailure(err: unknown, what: string): Error {
+		if (isTimeout(err)) {
+			return new AdoTimeoutError(
+				`azure devops ${what} did not answer within ${this.config.timeoutMs}ms`,
+			);
+		}
+		const reason = err instanceof Error ? err.message : String(err);
+		return new AdoApiError(`azure devops unreachable: ${reason}`, 0);
+	}
+}
+
+/** What `AbortSignal.timeout` makes `fetch` reject with when the deadline passes. */
+function isTimeout(err: unknown): boolean {
+	return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 }
 
 function malformed(what: string, problem: string): AdoApiError {

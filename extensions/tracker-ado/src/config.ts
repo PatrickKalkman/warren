@@ -41,7 +41,15 @@ export interface AdoTrackerConfig {
 	readonly batchSize: number;
 	/** Hard stop on the WIQL result count, so a runaway query fails loud. */
 	readonly maxWiqlResults: number;
+	/** Deadline per Azure DevOps call, headers and body included. */
+	readonly timeoutMs: number;
 }
+
+/**
+ * Long enough for a 200-id batch read on a slow day, short enough that a
+ * stalled connection cannot hold a warren request open for minutes.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class ConfigError extends Error {}
 
@@ -138,6 +146,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): A
 		...(bearerToken !== undefined ? { bearerToken } : {}),
 		batchSize: positiveInt(env, "ADO_BATCH_SIZE", ADO_MAX_BATCH_SIZE, ADO_MAX_BATCH_SIZE),
 		maxWiqlResults: positiveInt(env, "ADO_MAX_WIQL_RESULTS", 5000),
+		timeoutMs: positiveInt(env, "ADO_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
 	};
 }
 

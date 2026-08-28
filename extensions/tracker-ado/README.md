@@ -56,6 +56,7 @@ inside a run.
 | `ADO_BLOCKED_BY_LINK` | no | Link type whose target is a blocker. Default `System.LinkTypes.Dependency-Reverse` |
 | `ADO_BATCH_SIZE` | no | Ids per batch read. Default and maximum 200 |
 | `ADO_MAX_WIQL_RESULTS` | no | Backstop on the query's result count. Default 5000 |
+| `ADO_TIMEOUT_MS` | no | Deadline per Azure DevOps call, headers and body included. Default 30000 |
 | `TRACKER_PORT` | no | Listen port. Default 8080 |
 | `TRACKER_BEARER` | no | The token **warren** must present to this server |
 
@@ -174,6 +175,7 @@ does not retry a 4xx.
 | 429 | `429 upstream_rate_limited`, `Retry-After` passed through | warren's bridge already backs off on 429 and honors the header |
 | 5xx or unreachable | `502 upstream_error` / `upstream_unreachable` | the tracker answered; the system behind it did not |
 | a WIQL result past `ADO_MAX_WIQL_RESULTS` | `409 query_too_broad` | a configuration answer that stays wrong on a retry, so warren must not repeat the query |
+| no answer within `ADO_TIMEOUT_MS` | `504 upstream_timeout` | a stalled connection or body would otherwise hold the handler open, and warren's backoff cannot start until this call ends |
 | n/a | `400 invalid_issue_id` | the path segment is not valid percent-encoding, so there is no id to look up |
 
 There are no retries in this container. A second, unsynchronized backoff

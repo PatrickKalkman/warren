@@ -81,6 +81,13 @@ describe("loadConfig", () => {
 		expect(loadConfig({ ...base, TRACKER_PORT: "9000" }).port).toBe(9000);
 	});
 
+	test("carries a request deadline, thirty seconds unless configured", () => {
+		expect(loadConfig(base).timeoutMs).toBe(30_000);
+		expect(loadConfig({ ...base, ADO_TIMEOUT_MS: "5000" }).timeoutMs).toBe(5000);
+		expect(() => loadConfig({ ...base, ADO_TIMEOUT_MS: "0" })).toThrow(/positive whole number/);
+		expect(() => loadConfig({ ...base, ADO_TIMEOUT_MS: "1.5" })).toThrow(/positive whole number/);
+	});
+
 	test("refuses a batch size past the Azure DevOps limit", () => {
 		expect(() => loadConfig({ ...base, ADO_BATCH_SIZE: "201" })).toThrow(/at most 200/);
 		expect(loadConfig({ ...base, ADO_BATCH_SIZE: "50" }).batchSize).toBe(50);

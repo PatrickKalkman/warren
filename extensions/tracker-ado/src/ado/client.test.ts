@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../config.ts";
 import { json } from "../responses.ts";
-import { AdoApiError, AdoClient, AdoQueryTooBroadError } from "./client.ts";
+import { AdoApiError, AdoClient, AdoQueryTooBroadError, AdoTimeoutError } from "./client.ts";
 
 interface RecordedRequest {
 	url: string;
@@ -95,6 +95,45 @@ describe("AdoClient request shape", () => {
 			{ op: "test", path: "/rev", value: 7 },
 			{ op: "add", path: "/fields/System.State", value: "Closed" },
 		]);
+	});
+});
+
+describe("AdoClient deadline", () => {
+	/** A transport that never answers on its own and only ends when the signal fires. */
+	function stalledFetch(): { fetchImpl: typeof fetch; signals: AbortSignal[] } {
+		const signals: AbortSignal[] = [];
+		const fetchImpl = ((_input: unknown, init?: RequestInit) =>
+			new Promise<Response>((_resolve, reject) => {
+				const signal = init?.signal;
+				if (signal === undefined || signal === null) return;
+				signals.push(signal);
+				signal.addEventListener("abort", () => reject(signal.reason));
+			})) as unknown as typeof fetch;
+		return { fetchImpl, signals };
+	}
+
+	test("hands every call a signal that fires at the configured deadline", async () => {
+		const { fetchImpl, signals } = stalledFetch();
+		const client = new AdoClient(loadConfig({ ...BASE, ADO_TIMEOUT_MS: "20" }), fetchImpl);
+		const failure = await client.getWorkItem(1).catch((err: unknown) => err);
+		expect(signals).toHaveLength(1);
+		expect(signals[0]?.aborted).toBe(true);
+		expect(failure).toBeInstanceOf(AdoTimeoutError);
+		expect((failure as Error).message).toMatch(/GET .*workitems\/1.*within 20ms/);
+	});
+
+	test("reads a body that stalls past the deadline as the same timeout", async () => {
+		const fetchImpl = ((_input: unknown, init?: RequestInit) => {
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+				},
+			});
+			return Promise.resolve(new Response(stream, { status: 200 }));
+		}) as unknown as typeof fetch;
+		const client = new AdoClient(loadConfig({ ...BASE, ADO_TIMEOUT_MS: "20" }), fetchImpl);
+		const failure = await client.getWorkItem(1).catch((err: unknown) => err);
+		expect(failure).toBeInstanceOf(AdoTimeoutError);
 	});
 });
 

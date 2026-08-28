@@ -19,7 +19,12 @@
  *     present but the system behind it did not answer.
  */
 
-import { AdoApiError, type AdoClient, AdoQueryTooBroadError } from "./ado/client.ts";
+import {
+	AdoApiError,
+	type AdoClient,
+	AdoQueryTooBroadError,
+	AdoTimeoutError,
+} from "./ado/client.ts";
 import {
 	issueStatus,
 	isTerminal,
@@ -56,6 +61,11 @@ function toTrackerError(err: unknown, key?: string): TrackerOperationError {
 	// 4xx keeps warren from repeating an expensive query for nothing.
 	if (err instanceof AdoQueryTooBroadError) {
 		return new TrackerOperationError("query_too_broad", err.message, 409);
+	}
+	// A 5xx, so warren's bridge backs off and tries again, which is the
+	// right answer to a stalled upstream.
+	if (err instanceof AdoTimeoutError) {
+		return new TrackerOperationError("upstream_timeout", err.message, 504);
 	}
 	if (!(err instanceof AdoApiError)) {
 		const reason = err instanceof Error ? err.message : String(err);

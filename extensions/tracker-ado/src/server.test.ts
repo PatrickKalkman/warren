@@ -344,6 +344,26 @@ describe("upstream failures", () => {
 		});
 	});
 
+	test("ends a stalled Azure DevOps call at the deadline as 504 upstream_timeout", async () => {
+		const stalled = ((_input: unknown, init?: RequestInit) =>
+			new Promise<Response>((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+			})) as unknown as typeof fetch;
+		const config = loadConfig({
+			ADO_ORG_URL: "https://dev.azure.com/acme",
+			ADO_PROJECT: "Platform",
+			ADO_PAT: "pat-123",
+			ADO_WIQL: "SELECT [System.Id] FROM WorkItems",
+			ADO_TIMEOUT_MS: "20",
+		});
+		const handler = createAdoTrackerHandler({ config, fetchImpl: stalled });
+		const response = await handler(new Request("http://tracker/issues/96379"));
+		expect(response.status).toBe(504);
+		expect((await response.json()) as unknown).toMatchObject({
+			error: { code: "upstream_timeout" },
+		});
+	});
+
 	test("reports an Azure DevOps 5xx as 502", async () => {
 		const { call } = harness({ failWith: { status: 503 } });
 		const response = await call("GET", "/issues/96379");
