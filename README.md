@@ -67,15 +67,15 @@ The core guarantee is a pushed workspace branch. Project settings can add PR cre
 ## See it running
 
 Every screenshot below is the live public instance at
-[app.warren.run](https://app.warren.run), running warren's own development —
+[app.warren.run](https://app.warren.run), running warren's own development:
 agents working the warren backlog, on warren.
 
 | | |
 |---|---|
 | [![Operations dashboard](docs/screenshots/operations.png)](https://app.warren.run) | [![Runs list](docs/screenshots/runs.png)](https://app.warren.run/#/runs) |
-| *Operations — control-plane health, lifecycle snapshot, active workloads, structured event log* | *Runs — every workload with state, duration, cost, and Git delivery* |
+| *Operations: control-plane health, lifecycle snapshot, active workloads, structured event log* | *Runs: every workload with state, duration, cost, and Git delivery* |
 | [![Run detail](docs/screenshots/run-detail.png)](https://app.warren.run) | [![Agents](docs/screenshots/agents.png)](https://app.warren.run/#/agents) |
-| *Run detail — lifecycle pipeline, live event stream, budget, and the merged PR* | *Agents — the harness definitions this instance can dispatch* |
+| *Run detail: lifecycle pipeline, live event stream, budget, and the merged PR* | *Agents: the harness definitions this instance can dispatch* |
 
 ## Harnesses and runtimes
 
