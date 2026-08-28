@@ -9,7 +9,13 @@
  */
 import { StateError } from "../errors.ts";
 import { nowMs, type StoreContext } from "./context.ts";
-import type { AttentionItemRow, GithubEventRow, PrIdentityRow, RunLinkRow } from "./types.ts";
+import type {
+	AttentionItemRow,
+	FeedbackRow,
+	GithubEventRow,
+	PrIdentityRow,
+	RunLinkRow,
+} from "./types.ts";
 
 type RunLinkDbRow = {
 	run_id: string;
@@ -43,6 +49,17 @@ type GithubEventDbRow = {
 	event_kind: string;
 	payload_json: string;
 	observed_at_ms: number;
+};
+
+type FeedbackDbRow = {
+	id: string;
+	campaign_id: string;
+	work_item_id: string | null;
+	source_node_id: string;
+	category: string;
+	fields_json: string;
+	provenance: string;
+	created_at_ms: number;
 };
 
 type AttentionDbRow = {
@@ -315,6 +332,75 @@ export class EventStore {
 			: "SELECT * FROM attention_items WHERE campaign_id = ? AND resolved_at_ms IS NULL ORDER BY created_at_ms, id";
 		const rows = this.#ctx.db.query(sql).all(campaignId) as AttentionDbRow[];
 		return rows.map((row) => this.getAttentionItem(row.id) as AttentionItemRow);
+	}
+
+	/** Insert classified feedback only when the (campaign, source node, category) row is new. */
+	recordFeedbackOnce(input: {
+		campaignId: string;
+		workItemId?: string | null;
+		sourceNodeId: string;
+		category: string;
+		fieldsJson: string;
+		provenance: string;
+	}): { row: FeedbackRow; created: boolean } {
+		const existing = this.#ctx.db
+			.query(
+				"SELECT id FROM classified_feedback WHERE campaign_id = ? AND source_node_id = ? AND category = ?",
+			)
+			.get(input.campaignId, input.sourceNodeId, input.category) as { id: string } | null;
+		if (existing !== null) {
+			return { row: this.getFeedbackRow(existing.id) as FeedbackRow, created: false };
+		}
+		const id = this.#ctx.ids.newId();
+		this.#ctx.db
+			.query(
+				`INSERT INTO classified_feedback (id, campaign_id, work_item_id, source_node_id, category, fields_json, provenance, created_at_ms)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				id,
+				input.campaignId,
+				input.workItemId ?? null,
+				input.sourceNodeId,
+				input.category,
+				input.fieldsJson,
+				input.provenance,
+				nowMs(this.#ctx),
+			);
+		return { row: this.getFeedbackRow(id) as FeedbackRow, created: true };
+	}
+
+	getFeedbackRow(id: string): FeedbackRow | null {
+		const row = this.#ctx.db
+			.query("SELECT * FROM classified_feedback WHERE id = ?")
+			.get(id) as FeedbackDbRow | null;
+		if (row === null) return null;
+		return {
+			id: row.id,
+			campaignId: row.campaign_id,
+			workItemId: row.work_item_id,
+			sourceNodeId: row.source_node_id,
+			category: row.category,
+			fieldsJson: row.fields_json,
+			provenance: row.provenance,
+			createdAtMs: row.created_at_ms,
+		};
+	}
+
+	listFeedback(campaignId: string): FeedbackRow[] {
+		const rows = this.#ctx.db
+			.query("SELECT * FROM classified_feedback WHERE campaign_id = ? ORDER BY created_at_ms, id")
+			.all(campaignId) as FeedbackDbRow[];
+		return rows.map((row) => ({
+			id: row.id,
+			campaignId: row.campaign_id,
+			workItemId: row.work_item_id,
+			sourceNodeId: row.source_node_id,
+			category: row.category,
+			fieldsJson: row.fields_json,
+			provenance: row.provenance,
+			createdAtMs: row.created_at_ms,
+		}));
 	}
 
 	/**

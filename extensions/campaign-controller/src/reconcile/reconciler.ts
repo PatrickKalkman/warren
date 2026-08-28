@@ -31,6 +31,8 @@ import type {
 } from "../github/types.ts";
 import type { CampaignStateStore } from "../store/state-store.ts";
 import { deriveAttentionCandidates } from "./attention.ts";
+import type { BotGrammar } from "./bot-grammar.ts";
+import { classifyFeedback } from "./classifier.ts";
 import {
 	dedupeEvents,
 	type NormalizedGithubEvent,
@@ -56,6 +58,8 @@ export interface UpstreamPrTarget {
 	readonly policyPath?: string;
 	/** Default 0 (staleness classification off). */
 	readonly staleAfterMs?: number;
+	/** Profile-declared bot grammar; when present, events are classified into feedback rows. */
+	readonly botGrammar?: BotGrammar;
 }
 
 /** What one reconciliation pass observed and durably changed. */
@@ -67,6 +71,8 @@ export interface ReconcileResult {
 	readonly duplicateEvents: number;
 	readonly attentionCreated: number;
 	readonly attentionAlreadyOpen: number;
+	readonly feedbackCreated: number;
+	readonly feedbackDuplicates: number;
 	readonly truncated: boolean;
 }
 
@@ -131,6 +137,7 @@ export class UpstreamPrReconciler {
 			staleAfterMs: target.staleAfterMs ?? 0,
 		});
 		const { attentionCreated, attentionAlreadyOpen } = this.#storeAttention(target, candidates);
+		const { feedbackCreated, feedbackDuplicates } = this.#storeFeedback(target, observation);
 
 		return {
 			notificationsSeen: observation.notificationsSeen,
@@ -139,6 +146,8 @@ export class UpstreamPrReconciler {
 			duplicateEvents: duplicateCount + durableDuplicates,
 			attentionCreated,
 			attentionAlreadyOpen,
+			feedbackCreated,
+			feedbackDuplicates,
 			truncated: observation.truncated,
 		};
 	}
@@ -281,6 +290,41 @@ export class UpstreamPrReconciler {
 			}
 		}
 		return { attentionCreated, attentionAlreadyOpen };
+	}
+
+	/** Classify the observation via the profile grammar and persist deduplicated feedback rows. */
+	#storeFeedback(
+		target: UpstreamPrTarget,
+		observation: PrObservation,
+	): { feedbackCreated: number; feedbackDuplicates: number } {
+		const grammar = target.botGrammar;
+		if (grammar === undefined) return { feedbackCreated: 0, feedbackDuplicates: 0 };
+		const candidates = classifyFeedback({
+			pr: observation.pr,
+			reviews: observation.reviews,
+			issueComments: observation.issueComments,
+			reviewComments: observation.reviewComments,
+			checkRuns: observation.checkRuns,
+			grammar,
+		});
+		let feedbackCreated = 0;
+		let feedbackDuplicates = 0;
+		for (const candidate of candidates) {
+			const outcome = this.#store.events.recordFeedbackOnce({
+				campaignId: target.campaignId,
+				workItemId: target.workItemId ?? null,
+				sourceNodeId: candidate.sourceNodeId,
+				category: candidate.category,
+				fieldsJson: canonicalJson(candidate.fields),
+				provenance: candidate.provenance,
+			});
+			if (outcome.created) {
+				feedbackCreated += 1;
+			} else {
+				feedbackDuplicates += 1;
+			}
+		}
+		return { feedbackCreated, feedbackDuplicates };
 	}
 
 	/**

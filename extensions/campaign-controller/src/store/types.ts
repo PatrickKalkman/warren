@@ -179,6 +179,18 @@ export interface AttentionItemRow {
 	readonly resolvedAtMs: number | null;
 }
 
+/** A durable classified review-feedback row. */
+export interface FeedbackRow {
+	readonly id: string;
+	readonly campaignId: string;
+	readonly workItemId: string | null;
+	readonly sourceNodeId: string;
+	readonly category: string;
+	readonly fieldsJson: string;
+	readonly provenance: string;
+	readonly createdAtMs: number;
+}
+
 /** A budget reservation in the campaign ledger. */
 export interface ReservationRow {
 	readonly id: string;

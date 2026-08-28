@@ -139,4 +139,22 @@ CREATE TABLE leases (
 );
 `,
 	},
+	{
+		id: 2,
+		name: "002_classified_feedback",
+		sql: `
+CREATE TABLE classified_feedback (
+	id TEXT PRIMARY KEY,
+	campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+	work_item_id TEXT REFERENCES work_items(id),
+	source_node_id TEXT NOT NULL,
+	category TEXT NOT NULL,
+	fields_json TEXT NOT NULL,
+	provenance TEXT NOT NULL,
+	created_at_ms INTEGER NOT NULL,
+	UNIQUE(campaign_id, source_node_id, category)
+);
+CREATE INDEX idx_classified_feedback_campaign ON classified_feedback(campaign_id);
+`,
+	},
 ];
