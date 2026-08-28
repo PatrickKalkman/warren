@@ -9,17 +9,9 @@ import {
 	toIssueResponse,
 	workItemIdFromUrl,
 } from "./map.ts";
-import type { AdoWorkItemTypeState } from "./types.ts";
+import { AGILE_STATES as AGILE } from "../fake-ado.ts";
 
 const LINK = "System.LinkTypes.Dependency-Reverse";
-
-const AGILE: readonly AdoWorkItemTypeState[] = [
-	{ name: "New", category: "Proposed" },
-	{ name: "Active", category: "InProgress" },
-	{ name: "Resolved", category: "Resolved" },
-	{ name: "Closed", category: "Completed" },
-	{ name: "Removed", category: "Removed" },
-];
 
 describe("parseWorkItemId", () => {
 	test("accepts a decimal work item number", () => {

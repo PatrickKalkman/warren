@@ -10,6 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { loadConfig } from "../config.ts";
+import { json } from "../responses.ts";
 import { AdoApiError, AdoClient } from "./client.ts";
 
 interface RecordedRequest {
@@ -47,13 +48,6 @@ const BASE = {
 	ADO_PAT: "pat-123",
 	ADO_WIQL: "SELECT [System.Id] FROM WorkItems",
 };
-
-function json(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
-}
 
 describe("AdoClient request shape", () => {
 	test("sends basic auth with an empty user name and the token", async () => {

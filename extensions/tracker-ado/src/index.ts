@@ -8,11 +8,11 @@
  * container speaks for, which is the pair that goes wrong in practice.
  */
 
-import { ConfigError, loadConfig } from "./config.ts";
+import { type AdoTrackerConfig, ConfigError, loadConfig } from "./config.ts";
 import { startAdoTracker } from "./server.ts";
 
 async function main(): Promise<void> {
-	let config: ReturnType<typeof loadConfig>;
+	let config: AdoTrackerConfig;
 	try {
 		config = loadConfig(process.env);
 	} catch (err) {

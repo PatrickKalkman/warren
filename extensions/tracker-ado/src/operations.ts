@@ -44,7 +44,7 @@ function notFound(key: string): TrackerOperationError {
 	return new TrackerOperationError(TRACKER_ISSUE_NOT_FOUND_CODE, `issue not found: ${key}`, 404);
 }
 
-export function toTrackerError(err: unknown, key?: string): TrackerOperationError {
+function toTrackerError(err: unknown, key?: string): TrackerOperationError {
 	if (!(err instanceof AdoApiError)) {
 		const reason = err instanceof Error ? err.message : String(err);
 		return new TrackerOperationError("internal_error", reason, 500);

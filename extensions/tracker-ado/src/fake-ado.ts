@@ -15,6 +15,8 @@
  * against a real project as the thing that confirms or corrects it.
  */
 
+import { json } from "./responses.ts";
+
 export interface FakeAdoWorkItem {
 	id: number;
 	/** The work item type name, such as `User Story` or `Bug`. */
@@ -64,13 +66,6 @@ export interface FakeAdo {
 	readonly calls: string[];
 }
 
-function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json", ...headers },
-	});
-}
-
 function adoError(message: string, status: number, headers: Record<string, string> = {}): Response {
 	return json(
 		{ $id: "1", innerException: null, message, typeKey: "FakeAdoException" },
@@ -114,69 +109,33 @@ async function readBody<T>(init: RequestInit | undefined): Promise<T> {
 	return (await new Response(init?.body as BodyInit).json()) as T;
 }
 
+/** One request, already parsed: the fake routes on these. */
+interface FakeRequest {
+	readonly method: string;
+	readonly url: URL;
+	readonly init: RequestInit | undefined;
+}
+
 export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 	const items = new Map(options.items.map((i) => [i.id, { ...i }]));
 	const states = options.states ?? AGILE_STATES;
 	const calls: string[] = [];
 
-	const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
-		const url = new URL(typeof input === "string" ? input : input.toString());
-		const method = init?.method ?? "GET";
-		calls.push(`${method} ${url.pathname}`);
-
-		if (options.failWith !== undefined) return failure(options.failWith);
-
-		const itemMatch = WORK_ITEM.exec(url.pathname);
-		if (itemMatch !== null) {
-			const id = Number(itemMatch[1]);
-			const item = items.get(id);
-			if (item === undefined) {
-				return adoError(
-					`TF401232: Work item ${id} does not exist, or you do not have permissions to read it.`,
-					404,
-				);
-			}
-			if (method === "GET") return json(workItemBody(item, url.origin));
-			if (method === "PATCH") return patchItem(item, init, url.origin);
+	async function workItemRoute(request: FakeRequest, id: number): Promise<Response> {
+		const item = items.get(id);
+		if (item === undefined) {
+			return adoError(
+				`TF401232: Work item ${id} does not exist, or you do not have permissions to read it.`,
+				404,
+			);
 		}
+		if (request.method === "GET") return json(workItemBody(item, request.url.origin));
+		if (request.method === "PATCH") return patchItem(item, request);
+		return adoError(`no fake route: ${request.method} ${request.url.pathname}`, 404);
+	}
 
-		if (method === "POST" && WIQL.test(url.pathname)) {
-			const top = Number(url.searchParams.get("$top") ?? Number.MAX_SAFE_INTEGER);
-			const ids = [...items.keys()].slice(0, top);
-			return json({
-				queryType: "flat",
-				workItems: ids.map((id) => ({ id, url: `${url.origin}/_apis/wit/workItems/${id}` })),
-			});
-		}
-
-		if (method === "POST" && BATCH.test(url.pathname)) {
-			const body = await readBody<{ ids?: number[] }>(init);
-			const ids = body.ids ?? [];
-			if (ids.length > 200) return adoError("VS403474: You requested more than 200 ids", 400);
-			const found = ids.flatMap((id) => {
-				const item = items.get(id);
-				return item === undefined ? [] : [{ id, fields: { "System.State": item.state } }];
-			});
-			return json({ count: found.length, value: found });
-		}
-
-		const statesMatch = STATES.exec(url.pathname);
-		if (method === "GET" && statesMatch !== null) {
-			return json({
-				count: states.length,
-				value: states.map((s) => ({ name: s.name, color: "b2b2b2", category: s.category })),
-			});
-		}
-
-		return adoError(`no fake route: ${method} ${url.pathname}`, 404);
-	}) as unknown as typeof fetch;
-
-	async function patchItem(
-		item: FakeAdoWorkItem,
-		init: RequestInit | undefined,
-		origin: string,
-	): Promise<Response> {
-		const ops = await readBody<{ op?: string; path?: string; value?: unknown }[]>(init);
+	async function patchItem(item: FakeAdoWorkItem, request: FakeRequest): Promise<Response> {
+		const ops = await readBody<{ op?: string; path?: string; value?: unknown }[]>(request.init);
 		for (const op of ops) {
 			if (op.path !== "/fields/System.State") continue;
 			const target = states.find((s) => s.name === op.value);
@@ -188,8 +147,53 @@ export function createFakeAdo(options: FakeAdoOptions): FakeAdo {
 			}
 			item.state = target.name;
 		}
-		return json(workItemBody(item, origin));
+		return json(workItemBody(item, request.url.origin));
 	}
+
+	function wiqlRoute(request: FakeRequest): Response {
+		const top = Number(request.url.searchParams.get("$top") ?? Number.MAX_SAFE_INTEGER);
+		const ids = [...items.keys()].slice(0, top);
+		return json({
+			queryType: "flat",
+			workItems: ids.map((id) => ({ id, url: `${request.url.origin}/_apis/wit/workItems/${id}` })),
+		});
+	}
+
+	async function batchRoute(request: FakeRequest): Promise<Response> {
+		const body = await readBody<{ ids?: number[] }>(request.init);
+		const ids = body.ids ?? [];
+		if (ids.length > 200) return adoError("VS403474: You requested more than 200 ids", 400);
+		const found = ids.flatMap((id) => {
+			const item = items.get(id);
+			return item === undefined ? [] : [{ id, fields: { "System.State": item.state } }];
+		});
+		return json({ count: found.length, value: found });
+	}
+
+	function statesRoute(): Response {
+		return json({
+			count: states.length,
+			value: states.map((s) => ({ name: s.name, color: "b2b2b2", category: s.category })),
+		});
+	}
+
+	async function route(request: FakeRequest): Promise<Response> {
+		const { method, url } = request;
+		const itemMatch = WORK_ITEM.exec(url.pathname);
+		if (itemMatch !== null) return workItemRoute(request, Number(itemMatch[1]));
+		if (method === "POST" && WIQL.test(url.pathname)) return wiqlRoute(request);
+		if (method === "POST" && BATCH.test(url.pathname)) return batchRoute(request);
+		if (method === "GET" && STATES.test(url.pathname)) return statesRoute();
+		return adoError(`no fake route: ${method} ${url.pathname}`, 404);
+	}
+
+	const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+		const url = new URL(typeof input === "string" ? input : input.toString());
+		const method = init?.method ?? "GET";
+		calls.push(`${method} ${url.pathname}`);
+		if (options.failWith !== undefined) return failure(options.failWith);
+		return route({ method, url, init });
+	}) as unknown as typeof fetch;
 
 	return { fetchImpl, items, calls };
 }

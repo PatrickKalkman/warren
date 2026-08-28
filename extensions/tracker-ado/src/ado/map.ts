@@ -122,7 +122,7 @@ export function blockedByIds(
 }
 
 /** The raw state name, or an empty string when the payload carries none. */
-export function stateName(item: AdoWorkItem): string {
+function stateName(item: AdoWorkItem): string {
 	return item.fields?.["System.State"] ?? "";
 }
 

@@ -18,7 +18,7 @@ export type AdoAuth =
 	| { readonly kind: "bearer"; readonly token: string };
 
 /** Azure DevOps caps a work-items batch read at 200 ids per call. */
-export const ADO_MAX_BATCH_SIZE = 200;
+const ADO_MAX_BATCH_SIZE = 200;
 
 export interface AdoTrackerConfig {
 	/** Organization root, no trailing slash: `https://dev.azure.com/acme`. */

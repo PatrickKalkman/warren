@@ -125,7 +125,7 @@ describe("POST /issues/{id}/close", () => {
 		expect(ado.items.get(96379)?.state).toBe("Closed");
 	});
 
-	test("closing an already-closed work item is 200 and changes nothing", async () => {
+	test("answers 200 and changes nothing when the work item is already closed", async () => {
 		const { ado, call } = harness();
 		const first = await call("POST", "/issues/96379/close");
 		const before = ado.calls.length;
@@ -190,7 +190,7 @@ describe("POST /issues/{id}/close", () => {
 });
 
 describe("upstream failures", () => {
-	test("a rejected Azure DevOps credential is 502, never 401", async () => {
+	test("reports a rejected Azure DevOps credential as 502, never 401", async () => {
 		const { call } = harness({ failWith: { status: 401 } });
 		const response = await call("GET", "/issues/96379");
 		expect(response.status).toBe(502);
@@ -199,7 +199,7 @@ describe("upstream failures", () => {
 		});
 	});
 
-	test("the 203 sign-in page Azure DevOps serves for a bad token is a credential failure too", async () => {
+	test("treats the 203 sign-in page Azure DevOps serves for a bad token as a credential failure", async () => {
 		const { call } = harness({ failWith: { status: 203, html: true } });
 		const response = await call("GET", "/issues/96379");
 		expect(response.status).toBe(502);
@@ -208,7 +208,7 @@ describe("upstream failures", () => {
 		});
 	});
 
-	test("an Azure DevOps rate limit passes through with its Retry-After", async () => {
+	test("passes an Azure DevOps rate limit through with its Retry-After", async () => {
 		const { call } = harness({ failWith: { status: 429, retryAfter: "30" } });
 		const response = await call("GET", "/issues/96379");
 		expect(response.status).toBe(429);
@@ -218,7 +218,7 @@ describe("upstream failures", () => {
 		});
 	});
 
-	test("an Azure DevOps 5xx is 502", async () => {
+	test("reports an Azure DevOps 5xx as 502", async () => {
 		const { call } = harness({ failWith: { status: 503 } });
 		const response = await call("GET", "/issues/96379");
 		expect(response.status).toBe(502);
@@ -258,7 +258,7 @@ describe("the undeclared surfaces", () => {
 		}
 	});
 
-	test("an unknown route is a plain not_found", async () => {
+	test("answers an unknown route with a plain not_found", async () => {
 		const { call } = harness();
 		const response = await call("GET", "/nope");
 		expect(response.status).toBe(404);

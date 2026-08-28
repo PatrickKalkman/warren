@@ -24,26 +24,20 @@ export interface AdoWorkItemFields {
 	readonly "Microsoft.VSTS.TCM.ReproSteps"?: string | null;
 }
 
-export interface AdoRelationAttributes {
-	readonly name?: string;
-}
-
 export interface AdoRelation {
 	/** The link type reference name, such as `System.LinkTypes.Dependency-Reverse`. */
 	readonly rel?: string;
 	/** The linked work item's REST url; the id is its last path segment. */
 	readonly url?: string;
-	readonly attributes?: AdoRelationAttributes;
 }
 
 export interface AdoWorkItem {
 	readonly id?: number;
-	readonly rev?: number;
 	readonly fields?: AdoWorkItemFields;
 	readonly relations?: readonly AdoRelation[];
 }
 
-export interface AdoWorkItemReference {
+interface AdoWorkItemReference {
 	readonly id?: number;
 	readonly url?: string;
 }

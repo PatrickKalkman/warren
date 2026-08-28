@@ -19,11 +19,13 @@ import {
 	CAPABILITY_NOT_SUPPORTED_CODE,
 	type CapabilitiesResponse,
 	INVALID_ISSUE_ID_CODE,
+	type RemoteIssueResponse,
 	type RemoteIssueStatusesResponse,
 	type RemoteTrackerCapabilities,
 	TRACKER_PROTOCOL_VERSION,
 	type TrackerErrorResponse,
 } from "./protocol.ts";
+import { json } from "./responses.ts";
 
 /**
  * What this tracker can do. Azure DevOps has no plan object warren can
@@ -34,24 +36,17 @@ import {
  * issues would need a date-field convention; neither is guessable, so
  * neither is declared.
  */
-export const ADO_CAPABILITIES: RemoteTrackerCapabilities = {
+const ADO_CAPABILITIES: RemoteTrackerCapabilities = {
 	supportsPlans: false,
 	supportsMetadata: false,
 	supportsScheduledIssues: false,
 	isGitNative: false,
 };
 
-const ISSUE_PATH = /^\/issues\/([^/]+)$/;
-const CLOSE_PATH = /^\/issues\/([^/]+)\/close$/;
-const METADATA_PATH = /^\/issues\/([^/]+)\/metadata$/;
-const PLAN_PATH = /^\/plans\/([^/]+)$/;
-
-function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json", ...headers },
-	});
-}
+const CAPABILITIES_BODY: CapabilitiesResponse = {
+	protocolVersion: TRACKER_PROTOCOL_VERSION,
+	capabilities: ADO_CAPABILITIES,
+};
 
 function errorJson(
 	code: string,
@@ -108,70 +103,85 @@ export interface AdoTrackerServerOptions {
 	readonly fetchImpl?: typeof fetch;
 }
 
+/** Runs an operation and turns its outcome, either way, into a JSON response. */
+async function attempt(operation: () => Promise<unknown>): Promise<Response> {
+	try {
+		return json(await operation());
+	} catch (err) {
+		return operationFailure(err);
+	}
+}
+
+interface Route {
+	readonly method: "GET" | "POST";
+	readonly path: RegExp;
+	/** Receives the path's first capture group, the issue id segment where there is one. */
+	readonly handle: (segment: string | undefined) => Promise<Response>;
+}
+
+/**
+ * One operation per issue route. The id segment is decoded here so a
+ * malformed escape answers 400 before any operation runs.
+ */
+function issueRoute(
+	method: Route["method"],
+	path: RegExp,
+	operation: (key: string) => Promise<RemoteIssueResponse>,
+): Route {
+	return {
+		method,
+		path,
+		handle: (segment) => {
+			const key = decodeSegment(segment);
+			if (key === undefined) return Promise.resolve(badIssueId(segment));
+			return attempt(() => operation(key));
+		},
+	};
+}
+
+function buildRoutes(client: AdoClient, config: AdoTrackerConfig): readonly Route[] {
+	const off = (surface: string) => async () => capabilityOff(surface);
+	return [
+		{ method: "GET", path: /^\/capabilities$/, handle: async () => json(CAPABILITIES_BODY) },
+		issueRoute("GET", /^\/issues\/([^/]+)$/, (key) => readIssue(client, config, key)),
+		{
+			method: "GET",
+			path: /^\/issue-statuses$/,
+			handle: () =>
+				attempt(
+					async (): Promise<RemoteIssueStatusesResponse> => ({
+						statuses: await readStatuses(client),
+					}),
+				),
+		},
+		issueRoute("POST", /^\/issues\/([^/]+)\/close$/, (key) => closeIssue(client, config, key)),
+		{ method: "GET", path: /^\/plans(?:\/[^/]+)?$/, handle: off("plans") },
+		{ method: "POST", path: /^\/issues\/[^/]+\/metadata$/, handle: off("metadata") },
+		{ method: "GET", path: /^\/scheduled-issues$/, handle: off("scheduled-issues") },
+	];
+}
+
+function isAuthorized(request: Request, config: AdoTrackerConfig): boolean {
+	if (config.bearerToken === undefined) return true;
+	return request.headers.get("authorization") === `Bearer ${config.bearerToken}`;
+}
+
 export function createAdoTrackerHandler(
 	options: AdoTrackerServerOptions,
 ): (request: Request) => Promise<Response> {
 	const { config } = options;
-	const client = new AdoClient(config, options.fetchImpl ?? fetch);
+	const routes = buildRoutes(new AdoClient(config, options.fetchImpl ?? fetch), config);
 
 	return async (request: Request): Promise<Response> => {
+		if (!isAuthorized(request, config)) {
+			return errorJson("unauthorized", "missing or invalid bearer token", 401);
+		}
 		const path = new URL(request.url).pathname;
-
-		if (config.bearerToken !== undefined) {
-			if (request.headers.get("authorization") !== `Bearer ${config.bearerToken}`) {
-				return errorJson("unauthorized", "missing or invalid bearer token", 401);
-			}
+		for (const route of routes) {
+			if (request.method !== route.method) continue;
+			const match = route.path.exec(path);
+			if (match !== null) return route.handle(match[1]);
 		}
-
-		if (request.method === "GET" && path === "/capabilities") {
-			const body: CapabilitiesResponse = {
-				protocolVersion: TRACKER_PROTOCOL_VERSION,
-				capabilities: ADO_CAPABILITIES,
-			};
-			return json(body);
-		}
-
-		const issueMatch = ISSUE_PATH.exec(path);
-		if (request.method === "GET" && issueMatch !== null) {
-			const key = decodeSegment(issueMatch[1]);
-			if (key === undefined) return badIssueId(issueMatch[1]);
-			try {
-				return json(await readIssue(client, config, key));
-			} catch (err) {
-				return operationFailure(err);
-			}
-		}
-
-		if (request.method === "GET" && path === "/issue-statuses") {
-			try {
-				const body: RemoteIssueStatusesResponse = { statuses: await readStatuses(client) };
-				return json(body);
-			} catch (err) {
-				return operationFailure(err);
-			}
-		}
-
-		const closeMatch = CLOSE_PATH.exec(path);
-		if (request.method === "POST" && closeMatch !== null) {
-			const key = decodeSegment(closeMatch[1]);
-			if (key === undefined) return badIssueId(closeMatch[1]);
-			try {
-				return json(await closeIssue(client, config, key));
-			} catch (err) {
-				return operationFailure(err);
-			}
-		}
-
-		if (request.method === "GET" && (path === "/plans" || PLAN_PATH.test(path))) {
-			return capabilityOff("plans");
-		}
-		if (request.method === "POST" && METADATA_PATH.test(path)) {
-			return capabilityOff("metadata");
-		}
-		if (request.method === "GET" && path === "/scheduled-issues") {
-			return capabilityOff("scheduled-issues");
-		}
-
 		return errorJson("not_found", `no route: ${request.method} ${path}`, 404);
 	};
 }
