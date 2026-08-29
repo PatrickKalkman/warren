@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ProjectRow } from "../db/schema.ts";
+import { AdoForge } from "../forge/ado/provider.ts";
 import type { ProjectsConfig } from "../projects/config.ts";
 import {
 	createProjectCloneHealer,
@@ -103,6 +104,32 @@ describe("recloneMissingProject", () => {
 			defaultBranch: "trunk",
 			gitCredential: { username: "x-access-token", secret: "ghs_secret", host: "github.com" },
 		});
+	});
+
+	test("lays a forge-owned URL out under the owner/name addProject chose", async () => {
+		const calls: Record<string, unknown>[] = [];
+		await recloneMissingProject({
+			project: makeProject({ gitUrl: "https://dev.azure.com/acme/Widgets/_git/widget" }),
+			config: CONFIG,
+			spawn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+			forge: new AdoForge({ token: "t" }),
+			clone: async (input) => {
+				calls.push({ ...input, spawn: undefined });
+				return { localPath: input.config.root, defaultBranch: input.defaultBranch ?? "" };
+			},
+		});
+		expect(calls[0]).toMatchObject({ owner: "acme-Widgets", name: "widget" });
+	});
+
+	test("throws on a forge-owned URL when no forge is in reach", async () => {
+		await expect(
+			recloneMissingProject({
+				project: makeProject({ gitUrl: "https://dev.azure.com/acme/Widgets/_git/widget" }),
+				config: CONFIG,
+				spawn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+				clone: async (input) => ({ localPath: input.config.root, defaultBranch: "" }),
+			}),
+		).rejects.toThrow(/unrecognized GitHub URL/);
 	});
 });
 

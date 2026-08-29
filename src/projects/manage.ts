@@ -54,26 +54,7 @@ import {
 	type RefreshProjectCloneResult,
 	refreshProjectClone,
 } from "./refresh.ts";
-import type { ParsedGitHubUrl } from "./url.ts";
-import { parseForgeOwnedUrl, parseGitHubUrl } from "./url.ts";
-
-/**
- * Registration URL resolution (warren-2600): github.com grammars parse as
- * today; a URL the boot forge OWNS but `parseGitHubUrl` rejects falls back
- * to the forge-owned layout derivation. A URL neither owns surfaces the
- * ORIGINAL `parseGitHubUrl` validation error verbatim.
- */
-function parseProjectUrl(gitUrl: string, forge: Forge | undefined): ParsedGitHubUrl {
-	try {
-		return parseGitHubUrl(gitUrl);
-	} catch (err) {
-		if (forge !== undefined) {
-			const owned = parseForgeOwnedUrl(gitUrl, forge);
-			if (owned !== null) return owned;
-		}
-		throw err;
-	}
-}
+import { parseProjectUrl } from "./url.ts";
 
 export interface AddProjectInput {
 	readonly repo: ProjectsRepo;

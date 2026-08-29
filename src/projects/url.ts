@@ -98,6 +98,12 @@ function stripGitSuffix(segment: string): string {
 export function parseForgeOwnedUrl(input: string, forge: Forge): ParsedGitHubUrl | null {
 	const trimmed = input.trim();
 	if (trimmed === "" || forge.parseRepoRef(trimmed) === null) return null;
+	// A forge with a deeper coordinate than `<owner>/<name>` names the
+	// layout itself; the pair is still held to the path-safety rule.
+	const named = forge.repoLayout?.(trimmed) ?? null;
+	if (named !== null) {
+		return isSafeSegmentForPath(named.owner) && isSafeSegmentForPath(named.name) ? named : null;
+	}
 	const withoutScheme = trimmed.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
 	if (withoutScheme === trimmed) return null;
 	const parts = withoutScheme.split("/").filter((p) => p !== "");
@@ -106,6 +112,45 @@ export function parseForgeOwnedUrl(input: string, forge: Forge): ParsedGitHubUrl
 	const name = stripGitSuffix(parts[parts.length - 1] as string);
 	if (!isSafeSegmentForPath(owner) || !isSafeSegmentForPath(name)) return null;
 	return { owner, name };
+}
+
+/**
+ * Registration URL resolution (warren-2600): github.com grammars parse as
+ * before; a URL the boot forge OWNS but `parseGitHubUrl` rejects falls back
+ * to the forge-owned layout derivation. A URL neither owns surfaces the
+ * ORIGINAL `parseGitHubUrl` validation error verbatim.
+ *
+ * A URL carrying userinfo is refused up front, whatever the forge. Warren
+ * authenticates every git spawn itself, by rewriting `https://<host>/`,
+ * and an authority that already names a user (Azure DevOps hands out
+ * `https://<org>@dev.azure.com/…`) defeats that rewrite: the push would
+ * run without the credential and fail late.
+ */
+export function parseProjectUrl(gitUrl: string, forge: Forge | undefined): ParsedGitHubUrl {
+	assertNoUserinfo(gitUrl);
+	try {
+		return parseGitHubUrl(gitUrl);
+	} catch (err) {
+		if (forge !== undefined) {
+			const owned = parseForgeOwnedUrl(gitUrl, forge);
+			if (owned !== null) return owned;
+		}
+		throw err;
+	}
+}
+
+function assertNoUserinfo(gitUrl: string): void {
+	let parsed: URL;
+	try {
+		parsed = new URL(gitUrl.trim());
+	} catch {
+		return;
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+	if (parsed.username === "" && parsed.password === "") return;
+	throw new ValidationError(`gitUrl must not carry credentials or a username: ${parsed.host}`, {
+		recoveryHint: `drop the "${parsed.username}@" prefix — warren authenticates the clone itself`,
+	});
 }
 
 /** Boolean twin of `validateSegment` for the null-returning fallback. */
