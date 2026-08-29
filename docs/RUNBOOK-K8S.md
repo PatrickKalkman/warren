@@ -511,6 +511,7 @@ The verbs are exactly what `src/runtime/k8s/` exercises:
 | `pods` | `get, list, watch, create, delete` | dispatch (create), the pod-watcher informer (list/watch), status reads (get), reap + GC (delete) |
 | `pods/log` | `get, watch` | the pod-log NDJSON event stream (§6.1 / §5.1) |
 | `configmaps` | `get, list, create, delete` | per-run seed-file ConfigMaps — create at dispatch, list/delete at GC |
+| `events` | `get, list, watch` | the pod-warning-events watcher (`src/runtime/k8s/pod-event-watcher.ts`, warren-32f8) list-watches core Events to surface `FailedScheduling`, `FailedAttachVolume`, and image-pull stalls on the run's event stream. Without it the watcher reconnects on 403 forever |
 
 Two verb families are absent on purpose:
 
@@ -530,7 +531,7 @@ kubectl auth can-i --as=system:serviceaccount:warren:warren \
 
 If dispatch fails with a `403 Forbidden` from the K8s API, check this Role first.
 A missing verb shows up as pods that never get created, or as an informer that never attaches.
-`configmaps` and `watch` are the common gaps — the plan text under-specified them.
+`configmaps`, `watch`, and `events` are the common gaps — the plan text under-specified them.
 
 ### 4.1 NetworkPolicy — run-pod egress contract (warren-8dbb)
 
