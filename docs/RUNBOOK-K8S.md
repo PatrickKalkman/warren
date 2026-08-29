@@ -489,6 +489,8 @@ Manifest values live in `deploy/k8s/base/deployment.yaml` plus the overlays.
 | `WARREN_K8S_ANTHROPIC_SECRET_NAME` / `_KEY` | `warren-anthropic-key` / `api-key` | optional agent-key `secretKeyRef` |
 | `WARREN_K8S_GIT_SECRET_NAME` / `_KEY` | `warren-git-token` / `token` | init-container git token source |
 | `WARREN_K8S_EPHEMERAL_STORAGE_REQUEST_MIB` / `_LIMIT_MIB` | `10240` / `10240` (10Gi) | cluster-wide default ephemeral-storage budget (request + limit + emptyDir `sizeLimit`). A per-project `resources` block beats it (§7.3.1) |
+| `WARREN_K8S_MEMORY_REQUEST_MIB` / `_LIMIT_MIB` | `2048` / `4096` | cluster-wide default memory budget; a per-project `resources` block beats it |
+| `WARREN_K8S_CPU_REQUEST_MILLICORES` / `_LIMIT_MILLICORES` | `1000` / `4000` | cluster-wide default cpu budget; a per-project `resources` block beats it. Lower the request on a small node (a two-core laptop VM never schedules the 1-CPU default) |
 | `WARREN_AUTH` | unset ⇒ `token` | auth posture (§2.5); `public` admits credential-less spectators to the public projection |
 | `WARREN_PUBLIC_ALLOWLIST` | unset | owners and/or `owner/repo` entries a public instance may hold; required under `WARREN_AUTH=public` |
 | `WARREN_GITHUB_APP_REGISTRATION` | unset (fail-safe default, §2.6) | existence gate for the `/github-app/*` registration surface (warren-e320). `on`/`off` overrides the default. Gated-off routes answer 404 |
