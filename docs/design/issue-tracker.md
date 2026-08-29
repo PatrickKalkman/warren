@@ -86,10 +86,18 @@ the contract reserves not-found semantics for `getIssue`, where callers
 fail terminally instead of retrying a transient shell-out.
 
 **Status normalization:** warren compares "is this issue closed?" and
-nothing finer, so `IssueStatus` is `open | closed | other`, and raw
-tracker statuses normalize at the implementation boundary
-(`normalizeIssueStatus`). The bridge never asks a server to understand
-warren's three-state vocabulary.
+nothing finer, so `IssueStatus` is `open | closed | other`, and each
+implementation folds its tracker's statuses onto that vocabulary at the
+one layer that knows what they mean. For an in-core tracker that is
+`normalizeIssueStatus` (seeds' `in_progress` folds to `other`). For a
+remote server it is the server itself: the warren-tracker/v1 protocol
+requires every `status` field to be one of the three words, because
+only the server knows whether its `Done`, `Resolved` or `Removed` is
+terminal, and the bridge rejects any other string as a malformed
+payload rather than folding it. Folding at the bridge was the original
+design and it was wrong: a server sending its raw `Closed` produced a
+tracker whose finished issues never read as closed, so plan-runs never
+skipped finished children and auto-plan-run detection never fired.
 
 ## 2. SeedsTracker — implementation #1
 

@@ -98,12 +98,18 @@ describe("JiraClient.issueStatuses", () => {
 		const { fetchImpl, requests } = recordingFetch(() => {
 			page += 1;
 			return page === 1
-				? json({ issues: [{ key: "WAR-1", fields: { status: { name: "To Do" } } }], nextPageToken: "t2" })
-				: json({ issues: [{ key: "WAR-2", fields: { status: { name: "Done" } } }], isLast: true });
+				? json({
+						issues: [{ key: "WAR-1", fields: { status: { statusCategory: { key: "new" } } } }],
+						nextPageToken: "t2",
+					})
+				: json({
+						issues: [{ key: "WAR-2", fields: { status: { statusCategory: { key: "done" } } } }],
+						isLast: true,
+					});
 		});
 		const statuses = await new JiraClient(loadConfig(BASE), fetchImpl).issueStatuses();
 
-		expect(statuses).toEqual({ "WAR-1": "To Do", "WAR-2": "Done" });
+		expect(statuses).toEqual({ "WAR-1": "open", "WAR-2": "closed" });
 		expect(requests).toHaveLength(2);
 		for (const request of requests) {
 			const url = new URL(request.url);
@@ -116,16 +122,20 @@ describe("JiraClient.issueStatuses", () => {
 
 	test("stops on isLast even when the page still carries a token", async () => {
 		const { fetchImpl, requests } = recordingFetch(() =>
-			json({ issues: [{ key: "WAR-1", fields: { status: { name: "To Do" } } }], isLast: true, nextPageToken: "t2" }),
+			json({
+				issues: [{ key: "WAR-1", fields: { status: { name: "To Do" } } }],
+				isLast: true,
+				nextPageToken: "t2",
+			}),
 		);
 		await new JiraClient(loadConfig(BASE), fetchImpl).issueStatuses();
 		expect(requests).toHaveLength(1);
 	});
 
-	test("records an empty status for an issue whose workflow reports none", async () => {
+	test("records other for an issue whose workflow reports no status category", async () => {
 		const { fetchImpl } = recordingFetch(() => json({ issues: [{ key: "WAR-1" }], isLast: true }));
 		expect(await new JiraClient(loadConfig(BASE), fetchImpl).issueStatuses()).toEqual({
-			"WAR-1": "",
+			"WAR-1": "other",
 		});
 	});
 

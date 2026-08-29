@@ -19,8 +19,9 @@ surviving this suite, not by inspection.
   declaration: this is the document a tracker author codes against.
 - `src/conformance.ts` — the suite. Exercises capability discovery and
   protocol-version negotiation (a wrong version is rejected outright),
-  the base contract (issue reads, the raw status map, **idempotent
-  close**), the not-found taxonomy (`error.code: "issue_not_found"` on
+  the base contract (issue reads, the `id → status` map on warren's
+  `open | closed | other` vocabulary, **idempotent close** that leaves
+  the issue reading `closed`), the not-found taxonomy (`error.code: "issue_not_found"` on
   read and close), and the optional surfaces (plans, metadata with
   shallow-merge/null-clear semantics, scheduled issues) gated on the
   capabilities the server declares.
@@ -72,10 +73,13 @@ Flags: `--port` (0 = ephemeral; the bound port prints as
 the suite's wrong-version case), `--no-plans`, `--no-metadata`,
 `--no-scheduled-issues`, `--git-native`.
 
-Statuses are **raw tracker strings** — warren normalizes them onto its
-own three-state vocabulary at its bridge. Close is idempotent: closing
-an already-closed issue returns 200, closing an unknown id returns 404
-with `error.code: "issue_not_found"`.
+Statuses are **warren's vocabulary**, `open | closed | other` — the
+server folds its own states onto them, because only the server knows
+which of its states are terminal, and warren's bridge rejects any other
+string. Close is idempotent: closing an already-closed issue returns
+200 and the issue then reads `closed` on both the single read and the
+status map; closing an unknown id returns 404 with
+`error.code: "issue_not_found"`.
 
 ## Tests
 

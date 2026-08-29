@@ -33,10 +33,12 @@
  *     with a machine-readable `error.code`. `issue_not_found` is the
  *     one reserved code; warren maps it to `IssueNotFoundError` and
  *     every other code to a `TrackerError`.
- *   - Statuses: `status` fields are the tracker's RAW status strings;
- *     warren normalizes them onto `IssueStatus` (open/closed/other) at
- *     the bridge, so a server never needs to understand warren's
- *     three-state vocabulary.
+ *   - Statuses: every issue `status` field carries one of warren's
+ *     `IssueStatus` values — `open` (claimable), `closed` (finished),
+ *     `other` (anything in between). The server folds its own states
+ *     onto them, because only the server knows whether its `Done`,
+ *     `Resolved` or `Removed` is terminal; the bridge cannot guess and
+ *     rejects any other string as a malformed payload.
  *   - Timestamps cross the wire as ISO-8601 strings; the bridge
  *     converts to `Date`.
  *
@@ -47,6 +49,8 @@
  */
 
 /** The single protocol version warren's bridge speaks. */
+import type { IssueStatus } from "../../core/wire.ts";
+
 export const TRACKER_PROTOCOL_VERSION = "warren-tracker/v1";
 
 /** Reserved error code: the requested issue id does not exist. */
@@ -67,22 +71,22 @@ export interface CapabilitiesResponse {
 }
 
 /**
- * `GET /issues/{id}` response. `status` is the tracker's raw status
- * string; `title`/`description`/`blockedBy`/`metadata` are optional
- * pass-throughs of the neutral `Issue` DTO.
+ * `GET /issues/{id}` response. `status` is one of warren's
+ * {@link IssueStatus} values; `title`/`description`/`blockedBy`/`metadata`
+ * are optional pass-throughs of the neutral `Issue` DTO.
  */
 export interface RemoteIssueResponse {
 	readonly id: string;
-	readonly status: string;
+	readonly status: IssueStatus;
 	readonly title?: string;
 	readonly description?: string;
 	readonly blockedBy?: readonly string[];
 	readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
-/** `GET /issue-statuses` response: a raw `id → status` map. */
+/** `GET /issue-statuses` response: an `id → IssueStatus` map. */
 export interface RemoteIssueStatusesResponse {
-	readonly statuses: Readonly<Record<string, string>>;
+	readonly statuses: Readonly<Record<string, IssueStatus>>;
 }
 
 /** `GET /plans` response (supportsPlans only). */
@@ -131,7 +135,7 @@ export interface RemoteScheduledIssuesResponse {
 /** Wire form of `ScheduledIssue`; `scheduledFor` is an ISO-8601 string. */
 export interface RemoteScheduledIssue {
 	readonly id: string;
-	readonly status: string;
+	readonly status: IssueStatus;
 	readonly title?: string;
 	readonly scheduledFor: string;
 }

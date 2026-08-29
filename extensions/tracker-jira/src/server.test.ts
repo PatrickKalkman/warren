@@ -59,9 +59,10 @@ describe("GET /issues/{id}", () => {
 		const body = await (await call("GET", "/issues/WAR-1")).json();
 		expect(body).toEqual({
 			id: "WAR-1",
-			status: "To Do",
+			status: "open",
 			title: "Redis connection pool leaks under load",
-			description: "Connections are never returned after a timeout.\n\nReproduced on staging twice.",
+			description:
+				"Connections are never returned after a timeout.\n\nReproduced on staging twice.",
 			blockedBy: ["WAR-2"],
 		});
 	});
@@ -77,12 +78,12 @@ describe("GET /issues/{id}", () => {
 });
 
 describe("GET /issue-statuses", () => {
-	test("returns the raw id to status map for the configured query", async () => {
+	test("returns the id to status map for the configured query, on warren's vocabulary", async () => {
 		const { call } = harness();
 		const body = (await (await call("GET", "/issue-statuses")).json()) as {
 			statuses: Record<string, string>;
 		};
-		expect(body.statuses).toEqual({ "WAR-1": "To Do", "WAR-2": "In Progress", "WAR-3": "Done" });
+		expect(body.statuses).toEqual({ "WAR-1": "open", "WAR-2": "other", "WAR-3": "closed" });
 	});
 
 	test("walks every page rather than returning the first one", async () => {
@@ -109,7 +110,7 @@ describe("POST /issues/{id}/close", () => {
 		const { jira, call } = harness();
 		const response = await call("POST", "/issues/WAR-1/close");
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ id: "WAR-1", status: "Done" });
+		expect(await response.json()).toMatchObject({ id: "WAR-1", status: "closed" });
 		expect(jira.issues.get("WAR-1")?.statusCategory).toBe("done");
 	});
 
@@ -121,7 +122,7 @@ describe("POST /issues/{id}/close", () => {
 
 		expect(first.status).toBe(200);
 		expect(second.status).toBe(200);
-		expect(await second.json()).toMatchObject({ id: "WAR-1", status: "Done" });
+		expect(await second.json()).toMatchObject({ id: "WAR-1", status: "closed" });
 		// The second close reads the issue and stops there: no transition
 		// list, no transition POST.
 		expect(jira.calls.slice(before)).toEqual(["GET /rest/api/3/issue/WAR-1"]);
