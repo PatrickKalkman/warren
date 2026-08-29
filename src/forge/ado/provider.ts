@@ -66,6 +66,23 @@ const ZERO_OBJECT_ID = "0000000000000000000000000000000000000000";
 /** How many recent builds `listChecks` scans for the commit. */
 const BUILD_SCAN_TOP = 100;
 
+/**
+ * Azure DevOps rejects a pull-request description longer than 4000
+ * characters (`InvalidArgumentValueException`). GitHub allows 65536, and
+ * the domain composes the body against that headroom, so the arm cuts the
+ * body to fit rather than fail the PR.
+ */
+export const ADO_PR_DESCRIPTION_MAX = 4000;
+
+const TRUNCATION_MARKER = "\n\n…(description truncated at Azure DevOps' 4000-character limit)";
+
+/** Cut a PR description to the Azure DevOps limit, marking the cut. */
+export function fitPrDescription(body: string): string {
+	if (body.length <= ADO_PR_DESCRIPTION_MAX) return body;
+	const keep = ADO_PR_DESCRIPTION_MAX - TRUNCATION_MARKER.length;
+	return body.slice(0, keep) + TRUNCATION_MARKER;
+}
+
 export interface AdoForgeOptions {
 	/** The personal access token. Empty string → methods return `no_credential`. */
 	readonly token: string;
@@ -164,7 +181,7 @@ export class AdoForge implements Forge {
 				sourceRefName: branchRef(req.headBranch),
 				targetRefName: branchRef(req.baseBranch),
 				title: req.title,
-				description: req.body,
+				description: fitPrDescription(req.body),
 				...(req.draft !== undefined ? { isDraft: req.draft } : {}),
 			},
 		});
@@ -253,7 +270,7 @@ export class AdoForge implements Forge {
 			path: `pullrequests/${pr.number}`,
 			method: "PATCH",
 			context: `PATCH /pullrequests/${pr.number}`,
-			body: { description: body },
+			body: { description: fitPrDescription(body) },
 		});
 		if (!result.ok) return err(toForgeError(result.error));
 		return ok(undefined);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RepoRef } from "../contract.ts";
 import { jsonResponse, recordingFetch } from "../github/test-helpers.ts";
-import { AdoForge } from "./provider.ts";
+import { ADO_PR_DESCRIPTION_MAX, AdoForge, fitPrDescription } from "./provider.ts";
 import { stubAdoServer } from "./stub-server.ts";
 
 const CLONE_URL = "https://dev.azure.com/acme/Widgets/_git/widget";
@@ -169,6 +169,36 @@ describe("AdoForge pull requests", () => {
 		const edited = await forge.setPullRequestBody(ref, opened.value, "Rewritten.");
 		expect(edited.ok).toBe(true);
 		expect(stub.state.prs[0]?.description).toBe("Rewritten.");
+	});
+
+	test("openPullRequest cuts a description past the Azure DevOps limit and marks the cut", async () => {
+		const { forge, ref, stub } = setup();
+		const body = "x".repeat(ADO_PR_DESCRIPTION_MAX + 500);
+		const opened = await forge.openPullRequest(ref, { ...draft, body });
+		expect(opened.ok).toBe(true);
+		const sent = stub.state.prs[0]?.description ?? "";
+		expect(sent.length).toBe(ADO_PR_DESCRIPTION_MAX);
+		expect(sent.startsWith("xxxx")).toBe(true);
+		expect(sent).toEndWith("4000-character limit)");
+	});
+
+	test("setPullRequestBody applies the same description cap", async () => {
+		const { forge, ref, stub } = setup();
+		const opened = await forge.openPullRequest(ref, draft);
+		if (!opened.ok) throw new Error("unreachable");
+		const edited = await forge.setPullRequestBody(
+			ref,
+			opened.value,
+			"y".repeat(ADO_PR_DESCRIPTION_MAX + 1),
+		);
+		expect(edited.ok).toBe(true);
+		expect(stub.state.prs[0]?.description.length).toBe(ADO_PR_DESCRIPTION_MAX);
+	});
+
+	test("fitPrDescription leaves a body at the limit untouched", () => {
+		const exact = "z".repeat(ADO_PR_DESCRIPTION_MAX);
+		expect(fitPrDescription(exact)).toBe(exact);
+		expect(fitPrDescription("short")).toBe("short");
 	});
 });
 
