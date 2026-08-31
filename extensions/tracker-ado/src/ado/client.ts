@@ -188,7 +188,28 @@ export class AdoClient {
 		// One deadline covers the connection, the headers and the body: a
 		// stalled body read hangs a handler just as well as a stalled
 		// connect, and warren's retry cannot begin until this call ends.
-		const signal = AbortSignal.timeout(this.config.timeoutMs);
+		// An explicit timer rather than `AbortSignal.timeout`: that signal
+		// does not keep Bun's event loop alive on every platform, so a
+		// pending fetch can outlive the deadline it was supposed to cut.
+		const controller = new AbortController();
+		const deadline = setTimeout(
+			() => controller.abort(new DOMException("deadline passed", "TimeoutError")),
+			this.config.timeoutMs,
+		);
+		try {
+			return await this.exchange(method, path, headers, body, controller.signal);
+		} finally {
+			clearTimeout(deadline);
+		}
+	}
+
+	private async exchange(
+		method: string,
+		path: string,
+		headers: Record<string, string>,
+		body: unknown,
+		signal: AbortSignal,
+	): Promise<unknown> {
 		let response: Response;
 		try {
 			response = await this.fetchImpl(`${this.config.orgUrl}${path}`, {
@@ -237,7 +258,7 @@ export class AdoClient {
 	}
 }
 
-/** What `AbortSignal.timeout` makes `fetch` reject with when the deadline passes. */
+/** What `fetch` rejects with when the deadline aborts the request. */
 function isTimeout(err: unknown): boolean {
 	return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 }

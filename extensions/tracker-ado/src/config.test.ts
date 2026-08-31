@@ -43,9 +43,32 @@ describe("loadConfig", () => {
 		expect(() => loadConfig({ ...base, ADO_ORG_URL: "https://" })).toThrow(/must be an https URL/);
 	});
 
+	test("never echoes a value that could hold a credential", () => {
+		for (const value of [
+			"http://svc:S3cretPat@dev.azure.com/acme",
+			"https://svc:S3cretPat@dev.azure.com/acme",
+			"svc:S3cretPat@dev.azure.com/acme",
+			"dev.azure.com/svc:S3cretPat@acme",
+		]) {
+			const failure = (() => {
+				try {
+					loadConfig({ ...base, ADO_ORG_URL: value });
+					return undefined;
+				} catch (err) {
+					return err;
+				}
+			})();
+			expect(failure).toBeInstanceOf(ConfigError);
+			expect((failure as Error).message).not.toContain("S3cretPat");
+		}
+	});
+
 	test("refuses credentials, a query or a fragment inside the organization url", () => {
 		expect(() =>
 			loadConfig({ ...base, ADO_ORG_URL: "https://user:pat@dev.azure.com/acme" }),
+		).toThrow(/must not carry credentials/);
+		expect(() =>
+			loadConfig({ ...base, ADO_ORG_URL: "http://svc:S3cretPat@dev.azure.com/acme" }),
 		).toThrow(/must not carry credentials/);
 		expect(() => loadConfig({ ...base, ADO_ORG_URL: "https://dev.azure.com/acme?x=1" })).toThrow(
 			/query or fragment/,

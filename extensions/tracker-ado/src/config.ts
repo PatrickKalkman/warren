@@ -103,13 +103,15 @@ function organizationUrl(env: Readonly<Record<string, string | undefined>>): str
 	try {
 		url = new URL(raw);
 	} catch {
-		throw new ConfigError(`ADO_ORG_URL must be an https URL, got "${raw}"`);
+		throw new ConfigError("ADO_ORG_URL must be an https URL");
 	}
-	if (url.protocol !== "https:") {
-		throw new ConfigError(`ADO_ORG_URL must be an https URL, got "${raw}"`);
-	}
+	// Credentials are checked before anything from the value is echoed,
+	// so a token pasted into the URL never reaches the boot log.
 	if (url.username !== "" || url.password !== "") {
 		throw new ConfigError("ADO_ORG_URL must not carry credentials; set ADO_PAT or ADO_BEARER");
+	}
+	if (url.protocol !== "https:") {
+		throw new ConfigError(`ADO_ORG_URL must be an https URL, got scheme "${url.protocol}"`);
 	}
 	if (url.search !== "" || url.hash !== "") {
 		throw new ConfigError(`ADO_ORG_URL must not carry a query or fragment, got "${raw}"`);
