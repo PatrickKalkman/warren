@@ -192,6 +192,25 @@ describe("createProjectCloneHealer", () => {
 		expect(seenForge).toBe(forge);
 	});
 
+	test("forwards the minted credential as gitCredential, so private re-clones authenticate", async () => {
+		const tracker = new ProjectHealTracker();
+		const minted = { username: "x-access-token", secret: "s3cret", host: "dev.azure.com" };
+		let seenCredential: unknown = "unset";
+		const heal = createProjectCloneHealer({
+			tracker,
+			config: CONFIG,
+			spawn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+			exists: () => false,
+			mintCredential: async () => minted,
+			reclone: async (input) => {
+				seenCredential = input.gitCredential;
+			},
+			now: () => new Date(0),
+		});
+		expect(await heal(makeProject())).toBe("recloned");
+		expect(seenCredential).toBe(minted);
+	});
+
 	test("failed re-clone backs off and logs once, not every tick", async () => {
 		const tracker = new ProjectHealTracker();
 		const logger = makeLogger();
