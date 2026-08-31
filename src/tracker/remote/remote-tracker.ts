@@ -37,7 +37,6 @@ import {
 	type IssueStatus,
 	isIssueStatus,
 	isPlanStatus,
-	normalizeIssueStatus,
 	type Plan,
 	type PlanStep,
 	type PlanSummary,
@@ -194,7 +193,7 @@ export class RemoteTracker
 			}
 			const issue: Issue = {
 				id: body.id,
-				status: this.normalizeStatus(body.status),
+				status: this.requireIssueStatus(body.status, issueId, ctx.projectId),
 				...(body.title !== undefined ? { title: body.title } : {}),
 				...(body.description !== undefined ? { description: body.description } : {}),
 				...(body.blockedBy !== undefined ? { blockedBy: body.blockedBy } : {}),
@@ -221,7 +220,7 @@ export class RemoteTracker
 						`remote tracker returned a non-string status for issue ${id} (project ${ctx.projectId})`,
 					);
 				}
-				map.set(id, this.normalizeStatus(raw));
+				map.set(id, this.requireIssueStatus(raw, id, ctx.projectId));
 			}
 			return map as ReadonlyMap<string, IssueStatus>;
 		});
@@ -302,10 +301,20 @@ export class RemoteTracker
 
 	// -- internals ----------------------------------------------------------
 
-	private normalizeStatus(raw: string): IssueStatus {
-		// A server that already speaks the three-state vocabulary passes it
-		// through; anything else (in_progress, reopened, …) folds to 'other'.
-		return isIssueStatus(raw) ? raw : normalizeIssueStatus(raw);
+	/**
+	 * The protocol requires the server to speak warren's three-state
+	 * vocabulary, because only the server knows which of its own states
+	 * are terminal. Folding an unknown string to `other` here would hide a
+	 * non-conformant server behind issues that never read as closed, so
+	 * anything else is a malformed payload.
+	 */
+	private requireIssueStatus(raw: string, issueId: string, projectId: string): IssueStatus {
+		if (!isIssueStatus(raw)) {
+			throw new TrackerError(
+				`remote tracker returned unknown issue status "${raw}" for issue ${issueId} (project ${projectId}); the protocol requires open, closed or other`,
+			);
+		}
+		return raw;
 	}
 
 	private requirePlanStatus(raw: string, planId: string): Plan["status"] {
@@ -401,7 +410,7 @@ export class RemoteTracker
 		}
 		return {
 			id: s.id,
-			status: this.normalizeStatus(s.status),
+			status: this.requireIssueStatus(s.status, s.id, projectId),
 			...(s.title !== undefined ? { title: s.title } : {}),
 			scheduledFor: when,
 		};

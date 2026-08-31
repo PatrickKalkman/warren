@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { blockedByKeys, flattenAdf, isDone, pickCloseTransition, toIssueResponse } from "./map.ts";
+import {
+	blockedByKeys,
+	flattenAdf,
+	isDone,
+	issueStatus,
+	pickCloseTransition,
+	toIssueResponse,
+} from "./map.ts";
 
 describe("flattenAdf", () => {
 	test("joins paragraphs of an ADF tree into readable text", () => {
@@ -90,8 +97,27 @@ describe("blockedByKeys", () => {
 	});
 });
 
+describe("issueStatus", () => {
+	const withCategory = (key: string | undefined) => ({
+		key: "WAR-1",
+		fields: { status: { name: "Whatever", statusCategory: key === undefined ? {} : { key } } },
+	});
+
+	test("folds every status category onto warren's vocabulary, whatever the status is named", () => {
+		expect(issueStatus(withCategory("new"))).toBe("open");
+		expect(issueStatus(withCategory("indeterminate"))).toBe("other");
+		expect(issueStatus(withCategory("done"))).toBe("closed");
+	});
+
+	test("answers other when the workflow reports no category, never open", () => {
+		expect(issueStatus(withCategory(undefined))).toBe("other");
+		expect(issueStatus({ key: "WAR-1", fields: {} })).toBe("other");
+		expect(issueStatus({ key: "WAR-1" })).toBe("other");
+	});
+});
+
 describe("toIssueResponse", () => {
-	test("carries the raw Jira status name, not a normalized one", () => {
+	test("reports the status on warren's vocabulary, not Jira's status name", () => {
 		const response = toIssueResponse(
 			{
 				key: "WAR-1",
@@ -100,12 +126,12 @@ describe("toIssueResponse", () => {
 			"WAR-1",
 			"is blocked by",
 		);
-		expect(response.status).toBe("In Progress");
+		expect(response.status).toBe("other");
 	});
 
 	test("leaves out the optional fields Jira did not fill", () => {
 		const response = toIssueResponse({ key: "WAR-1", fields: {} }, "WAR-1", "is blocked by");
-		expect(response).toEqual({ id: "WAR-1", status: "" });
+		expect(response).toEqual({ id: "WAR-1", status: "other" });
 	});
 
 	test("falls back to the requested key when the payload carries none", () => {

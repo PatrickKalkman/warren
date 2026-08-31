@@ -189,8 +189,8 @@ describe("RemoteTracker.connect", () => {
 });
 
 describe("RemoteTracker base contract", () => {
-	test("getIssue maps the wire payload and normalizes raw statuses", async () => {
-		const state: FakeState = { issues: new Map([["warren-a", "in_progress"]]), requests: [] };
+	test("getIssue maps the wire payload", async () => {
+		const state: FakeState = { issues: new Map([["warren-a", "other"]]), requests: [] };
 		const fake = startFake(fullFake(state));
 		try {
 			const tracker = new RemoteTracker({ baseUrl: fake.baseUrl, cacheTtlMs: 0 });
@@ -199,6 +199,44 @@ describe("RemoteTracker base contract", () => {
 			expect(issue.id).toBe("warren-a");
 			expect(issue.status).toBe("other");
 			expect(issue.title).toBe("t-warren-a");
+		} finally {
+			await fake.stop();
+		}
+	});
+
+	// The protocol makes the server fold its states onto open/closed/other,
+	// because only the server knows which of its states are terminal. A
+	// bridge that folded an unknown string to "other" instead would turn a
+	// raw "Done" into an issue that never reads as closed, silently.
+	test("getIssue rejects a status outside the vocabulary instead of folding it to other", async () => {
+		const state: FakeState = { issues: new Map([["warren-a", "Done"]]), requests: [] };
+		const fake = startFake(fullFake(state));
+		try {
+			const tracker = new RemoteTracker({ baseUrl: fake.baseUrl, cacheTtlMs: 0 });
+			await tracker.connect();
+			await expect(tracker.getIssue(CTX, "warren-a")).rejects.toThrow(
+				/unknown issue status "Done" for issue warren-a/,
+			);
+		} finally {
+			await fake.stop();
+		}
+	});
+
+	test("listIssueStatuses rejects a status outside the vocabulary", async () => {
+		const state: FakeState = {
+			issues: new Map([
+				["warren-a", "open"],
+				["warren-b", "Closed"],
+			]),
+			requests: [],
+		};
+		const fake = startFake(fullFake(state));
+		try {
+			const tracker = new RemoteTracker({ baseUrl: fake.baseUrl, cacheTtlMs: 0 });
+			await tracker.connect();
+			await expect(tracker.listIssueStatuses(CTX)).rejects.toThrow(
+				/unknown issue status "Closed" for issue warren-b/,
+			);
 		} finally {
 			await fake.stop();
 		}
@@ -238,12 +276,12 @@ describe("RemoteTracker base contract", () => {
 		}
 	});
 
-	test("listIssueStatuses returns a normalized id→status map", async () => {
+	test("listIssueStatuses returns the id→status map as the server folded it", async () => {
 		const state: FakeState = {
 			issues: new Map([
 				["warren-a", "open"],
 				["warren-b", "closed"],
-				["warren-c", "in_review"],
+				["warren-c", "other"],
 			]),
 			requests: [],
 		};

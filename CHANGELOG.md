@@ -10,6 +10,22 @@ Releases **0.9.10 and earlier** live in
 
 ## [Unreleased]
 
+### Changed
+
+- **warren-tracker/v1: issue `status` fields must be `open`, `closed` or
+  `other`.** The protocol text told servers to send their raw status
+  string and promised the bridge would normalize it, but the bridge only
+  recognized those three exact words and folded everything else to
+  `other`, so a remote tracker's `Done` or `Closed` never read as closed:
+  plan-runs never skipped finished children and auto-plan-run detection
+  never fired. Servers now fold their own states, the bridge rejects any
+  other string as a malformed payload, the conformance suite requires
+  the vocabulary and checks that a closed issue reads `closed`, and
+  `tracker-jira` maps Jira's `statusCategory` (`new` → open,
+  `indeterminate` → other, `done` → closed). A server that still sends
+  raw strings fails loud on its first read instead of silently never
+  finishing.
+
 ## [0.19.0] — 2026-08-27
 
 The operator-console release. The UI is rebuilt end to end on the
