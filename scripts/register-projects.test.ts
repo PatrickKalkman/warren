@@ -49,6 +49,12 @@ describe("repoKey normalizes past URL spelling", () => {
 	test("owner case does not create a second identity", () => {
 		expect(repoKey("https://github.com/JayminWest/Warren")).toBe("jayminwest/warren");
 	});
+
+	test("falls back to the normalized raw URL for a non-GitHub row instead of throwing", () => {
+		const ado = "https://dev.azure.com/acme/Widgets/_git/widget";
+		expect(repoKey(ado)).toBe(repoKey(`${ado.replace("acme", "Acme")}.git/`));
+		expect(repoKey(ado)).toBe("https://dev.azure.com/acme/widgets/_git/widget");
+	});
 });
 
 describe("planRegistrations", () => {

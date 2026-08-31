@@ -100,8 +100,9 @@ export function parseForgeOwnedUrl(input: string, forge: Forge): ParsedGitHubUrl
 	if (trimmed === "" || forge.parseRepoRef(trimmed) === null) return null;
 	// A forge with a deeper coordinate than `<owner>/<name>` names the
 	// layout itself; the pair is still held to the path-safety rule.
-	const named = forge.repoLayout?.(trimmed) ?? null;
-	if (named !== null) {
+	if (forge.repoLayout !== undefined) {
+		const named = forge.repoLayout(trimmed);
+		if (named === null) return null;
 		return isSafeSegmentForPath(named.owner) && isSafeSegmentForPath(named.name) ? named : null;
 	}
 	const withoutScheme = trimmed.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
@@ -115,31 +116,45 @@ export function parseForgeOwnedUrl(input: string, forge: Forge): ParsedGitHubUrl
 }
 
 /**
- * Registration URL resolution (warren-2600): github.com grammars parse as
- * before; a URL the boot forge OWNS but `parseGitHubUrl` rejects falls back
- * to the forge-owned layout derivation. A URL neither owns surfaces the
- * ORIGINAL `parseGitHubUrl` validation error verbatim.
+ * Project URL resolution (warren-2600): the github.com grammars, then a
+ * URL the boot forge OWNS but `parseGitHubUrl` rejects falls back to the
+ * forge-owned layout derivation. A URL neither owns surfaces the ORIGINAL
+ * `parseGitHubUrl` validation error verbatim; a URL the forge owns whose
+ * layout cannot supply path-safe segments names that problem instead.
  *
- * A URL carrying userinfo is refused up front, whatever the forge. Warren
- * authenticates every git spawn itself, by rewriting `https://<host>/`,
- * and an authority that already names a user (Azure DevOps hands out
- * `https://<org>@dev.azure.com/…`) defeats that rewrite: the push would
- * run without the credential and fail late.
+ * Userinfo rejection is a REGISTRATION rule (`assertNoUserinfo`), not a
+ * parse rule: a row that already sits in the projects table must keep
+ * parsing on the heal path, whatever grammar admitted it.
  */
 export function parseProjectUrl(gitUrl: string, forge: Forge | undefined): ParsedGitHubUrl {
-	assertNoUserinfo(gitUrl);
 	try {
 		return parseGitHubUrl(gitUrl);
 	} catch (err) {
 		if (forge !== undefined) {
 			const owned = parseForgeOwnedUrl(gitUrl, forge);
 			if (owned !== null) return owned;
+			if (forge.parseRepoRef(gitUrl.trim()) !== null) {
+				throw new ValidationError(
+					`the forge owns this URL but cannot lay it out on disk: ${gitUrl.trim()}`,
+					{
+						recoveryHint:
+							"on-disk owner and name segments may only contain letters, digits, '.', '_', '-'",
+					},
+				);
+			}
 		}
 		throw err;
 	}
 }
 
-function assertNoUserinfo(gitUrl: string): void {
+/**
+ * Refuse a registration URL that carries userinfo, whatever the forge.
+ * Warren authenticates every git spawn itself, by rewriting
+ * `https://<host>/`, and an authority that already names a user (Azure
+ * DevOps hands out `https://<org>@dev.azure.com/…`) defeats that rewrite:
+ * the push would run without the credential and fail late.
+ */
+export function assertNoUserinfo(gitUrl: string): void {
 	let parsed: URL;
 	try {
 		parsed = new URL(gitUrl.trim());

@@ -27,6 +27,7 @@ interface StubPr {
 interface StubBuild {
 	id: number;
 	sourceVersion: string;
+	sourceBranch?: string;
 	status: string;
 	result: string | null;
 	definitionName: string;
@@ -144,16 +145,20 @@ function updateRefs(state: AdoStubState, bodyText: string | null): Response {
 	return jsonResponse(200, { value, count: value.length });
 }
 
-function listBuilds(state: AdoStubState): Response {
-	const value = state.builds.map((b) => ({
-		id: b.id,
-		status: b.status,
-		result: b.result,
-		sourceVersion: b.sourceVersion,
-		definition: { name: b.definitionName },
-		repository: { name: "widget" },
-		_links: { web: { href: `https://dev.azure.com/stub/_build/results?buildId=${b.id}` } },
-	}));
+function listBuilds(state: AdoStubState, url: URL): Response {
+	const branch = url.searchParams.get("branchName");
+	const value = state.builds
+		.filter((b) => branch === null || b.sourceBranch === branch)
+		.map((b) => ({
+			id: b.id,
+			status: b.status,
+			result: b.result,
+			sourceVersion: b.sourceVersion,
+			...(b.sourceBranch !== undefined ? { sourceBranch: b.sourceBranch } : {}),
+			definition: { name: b.definitionName },
+			repository: { name: "widget" },
+			_links: { web: { href: `https://dev.azure.com/stub/_build/results?buildId=${b.id}` } },
+		}));
 	return jsonResponse(200, { value, count: value.length });
 }
 
@@ -166,8 +171,8 @@ function buildLog(buildId: string): Response {
 }
 
 /** Route one `_apis/build/...` request. */
-function routeBuild(state: AdoStubState, tail: string[]): Response {
-	if (tail[0] === "builds" && tail.length === 1) return listBuilds(state);
+function routeBuild(state: AdoStubState, tail: string[], url: URL): Response {
+	if (tail[0] === "builds" && tail.length === 1) return listBuilds(state, url);
 	if (tail[0] === "builds" && tail[2] === "timeline") {
 		return jsonResponse(200, {
 			records: [
@@ -234,7 +239,7 @@ function route(state: AdoStubState, method: string, url: URL, bodyText: string |
 	if (url.hostname !== "dev.azure.com" || parts[2] !== "_apis") {
 		return jsonResponse(404, { message: `stub: unrouted ${method} ${url.pathname}` });
 	}
-	if (parts[3] === "build") return routeBuild(state, parts.slice(4));
+	if (parts[3] === "build") return routeBuild(state, parts.slice(4), url);
 	if (parts[3] === "git" && parts[4] === "repositories" && parts.length > 6) {
 		return routeGit(state, method, parts.slice(6), url, bodyText);
 	}

@@ -173,6 +173,25 @@ describe("createProjectCloneHealer", () => {
 		expect(logger.logs.some((l) => l.msg === "scheduler.project_recloned")).toBe(true);
 	});
 
+	test("forwards the boot-resolved forge to the re-clone, so non-GitHub rows heal", async () => {
+		const tracker = new ProjectHealTracker();
+		const forge = new AdoForge({ token: "t" });
+		let seenForge: unknown = "unset";
+		const heal = createProjectCloneHealer({
+			tracker,
+			config: CONFIG,
+			spawn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+			exists: () => false,
+			forge,
+			reclone: async (input) => {
+				seenForge = input.forge;
+			},
+			now: () => new Date(0),
+		});
+		expect(await heal(makeProject())).toBe("recloned");
+		expect(seenForge).toBe(forge);
+	});
+
 	test("failed re-clone backs off and logs once, not every tick", async () => {
 		const tracker = new ProjectHealTracker();
 		const logger = makeLogger();

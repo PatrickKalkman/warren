@@ -175,6 +175,12 @@ export interface ProjectCloneHealerInput {
 	/** Injected re-cloner; defaults to `recloneMissingProject`. */
 	readonly reclone?: typeof recloneMissingProject;
 	readonly now?: () => Date;
+	/**
+	 * The boot-resolved forge, forwarded to `recloneMissingProject` so a
+	 * project registered under a non-GitHub grammar heals under the same
+	 * on-disk layout `addProject` chose.
+	 */
+	readonly forge?: Forge;
 }
 
 /**
@@ -243,6 +249,7 @@ async function attemptReclone(
 		project,
 		config: input.config,
 		spawn: input.spawn,
+		...(input.forge !== undefined ? { forge: input.forge } : {}),
 		...(token !== undefined ? { token } : {}),
 		...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
 	});

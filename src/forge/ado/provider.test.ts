@@ -204,26 +204,33 @@ describe("AdoForge pull requests", () => {
 
 describe("AdoForge checks and logs", () => {
 	test("listChecks keeps only the builds for the commit and rolls them up", async () => {
+		const sha = "a".repeat(40);
 		const { forge, ref } = setup({
 			builds: [
 				{
 					id: 1,
-					sourceVersion: "abc",
+					sourceVersion: sha,
 					status: "completed",
 					result: "succeeded",
 					definitionName: "CI",
 				},
 				{
 					id: 2,
-					sourceVersion: "abc",
+					sourceVersion: sha,
 					status: "completed",
 					result: "failed",
 					definitionName: "Lint",
 				},
-				{ id: 3, sourceVersion: "zzz", status: "inProgress", result: null, definitionName: "CI" },
+				{
+					id: 3,
+					sourceVersion: "b".repeat(40),
+					status: "inProgress",
+					result: null,
+					definitionName: "CI",
+				},
 			],
 		});
-		const checks = await forge.listChecks(ref, "abc");
+		const checks = await forge.listChecks(ref, sha);
 		expect(checks.ok).toBe(true);
 		if (!checks.ok) return;
 		expect(checks.value.conclusion).toBe("failing");
@@ -231,6 +238,38 @@ describe("AdoForge checks and logs", () => {
 			["CI", "1"],
 			["Lint", "2"],
 		]);
+	});
+
+	test("listChecks polls a branch ref server-side — the shape the ci-fixer passes", async () => {
+		const sha = "c".repeat(40);
+		const { forge, ref, stub } = setup({
+			builds: [
+				{
+					id: 7,
+					sourceVersion: sha,
+					sourceBranch: "refs/heads/warren/run_1",
+					status: "completed",
+					result: "failed",
+					definitionName: "CI",
+				},
+				{
+					id: 8,
+					sourceVersion: sha,
+					sourceBranch: "refs/heads/main",
+					status: "completed",
+					result: "succeeded",
+					definitionName: "CI",
+				},
+			],
+		});
+		const checks = await forge.listChecks(ref, "warren/run_1");
+		expect(checks.ok).toBe(true);
+		if (!checks.ok) return;
+		expect(checks.value.conclusion).toBe("failing");
+		expect(checks.value.runs.map((r) => r.jobId)).toEqual(["7"]);
+		expect(checks.value.runs[0]?.conclusion).toBe("failure");
+		const buildCall = stub.state.calls.find((c) => c.url.includes("/build/builds"));
+		expect(buildCall?.url).toContain("branchName=refs%2Fheads%2Fwarren%2Frun_1");
 	});
 
 	test("fetchJobLogTail tails the failed task's log to maxBytes", async () => {

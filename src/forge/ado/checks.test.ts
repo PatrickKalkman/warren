@@ -6,7 +6,7 @@ function run(overrides: Partial<CheckRun> = {}): CheckRun {
 	return {
 		name: "ci",
 		status: "completed",
-		conclusion: "succeeded",
+		conclusion: "success",
 		jobId: "1",
 		detailsUrl: null,
 		...overrides,
@@ -26,7 +26,7 @@ describe("parseBuild", () => {
 		).toEqual({
 			name: "CI",
 			status: "completed",
-			conclusion: "failed",
+			conclusion: "failure",
 			jobId: "42",
 			detailsUrl: "https://dev.azure.com/acme/_build/results?buildId=42",
 		});
@@ -40,6 +40,14 @@ describe("parseBuild", () => {
 		expect(parseBuild({ id: 1, status: "completed" })?.conclusion).toBeNull();
 	});
 
+	test("folds build results to the classifier's conclusion vocabulary", () => {
+		expect(parseBuild({ id: 1, result: "succeeded" })?.conclusion).toBe("success");
+		expect(parseBuild({ id: 1, result: "failed" })?.conclusion).toBe("failure");
+		expect(parseBuild({ id: 1, result: "partiallySucceeded" })?.conclusion).toBe("failure");
+		expect(parseBuild({ id: 1, result: "canceled" })?.conclusion).toBe("cancelled");
+		expect(parseBuild({ id: 1, result: "somethingElse" })?.conclusion).toBe("somethingElse");
+	});
+
 	test("returns null for a row without a numeric id", () => {
 		expect(parseBuild({ status: "completed" })).toBeNull();
 		expect(parseBuild(null)).toBeNull();
@@ -47,16 +55,25 @@ describe("parseBuild", () => {
 });
 
 describe("buildMatches", () => {
-	test("matches on sourceVersion and, when named, the repository", () => {
+	const SHA = "a".repeat(40);
+
+	test("matches a commit sha on sourceVersion and, when named, the repository", () => {
 		expect(
-			buildMatches({ sourceVersion: "abc", repository: { name: "widget" } }, "widget", "abc"),
+			buildMatches({ sourceVersion: SHA, repository: { name: "widget" } }, "widget", SHA),
 		).toBe(true);
-		expect(
-			buildMatches({ sourceVersion: "abc", repository: { name: "other" } }, "widget", "abc"),
-		).toBe(false);
-		expect(buildMatches({ sourceVersion: "abc" }, "widget", "abc")).toBe(true);
-		expect(buildMatches({ sourceVersion: "def" }, "widget", "abc")).toBe(false);
-		expect(buildMatches(null, "widget", "abc")).toBe(false);
+		expect(buildMatches({ sourceVersion: SHA, repository: { name: "other" } }, "widget", SHA)).toBe(
+			false,
+		);
+		expect(buildMatches({ sourceVersion: SHA }, "widget", SHA)).toBe(true);
+		expect(buildMatches({ sourceVersion: "b".repeat(40) }, "widget", SHA)).toBe(false);
+		expect(buildMatches(null, "widget", SHA)).toBe(false);
+	});
+
+	test("matches a branch ref on sourceBranch — the shape the ci-fixer polls with", () => {
+		const row = { sourceVersion: SHA, sourceBranch: "refs/heads/warren/run_1" };
+		expect(buildMatches(row, "widget", "warren/run_1")).toBe(true);
+		expect(buildMatches(row, "widget", "warren/run_2")).toBe(false);
+		expect(buildMatches({ sourceVersion: SHA }, "widget", "warren/run_1")).toBe(false);
 	});
 });
 
@@ -66,10 +83,9 @@ describe("rollUp", () => {
 		expect(rollUp([run(), run({ status: "in_progress", conclusion: null })])).toBe("pending");
 	});
 
-	test("failed, canceled and partially succeeded all count as failing", () => {
-		expect(rollUp([run(), run({ conclusion: "failed" })])).toBe("failing");
-		expect(rollUp([run({ conclusion: "canceled" })])).toBe("failing");
-		expect(rollUp([run({ conclusion: "partiallySucceeded" })])).toBe("failing");
+	test("failure and cancelled count as failing", () => {
+		expect(rollUp([run(), run({ conclusion: "failure" })])).toBe("failing");
+		expect(rollUp([run({ conclusion: "cancelled" })])).toBe("failing");
 		expect(rollUp([run(), run()])).toBe("passing");
 	});
 });

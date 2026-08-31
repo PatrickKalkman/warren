@@ -74,3 +74,11 @@ describe("adoRepoLayout", () => {
 		expect(adoRepoLayout("https://dev.azure.com/acme/Proj%2Fect/_git/widget")).toBeNull();
 	});
 });
+
+describe("parseAdoCoordinate malformed encoding", () => {
+	test("returns null for malformed percent-encoding instead of throwing", () => {
+		expect(parseAdoRepoRef("https://dev.azure.com/acme%ZZ/Widgets/_git/widget")).toBeNull();
+		expect(parseAdoRepoRef("https://dev.azure.com/acme/Wid%GGgets/_git/widget")).toBeNull();
+		expect(parseAdoRepoRef("git@ssh.dev.azure.com:v3/acme/Wid%ZZgets/widget")).toBeNull();
+	});
+});

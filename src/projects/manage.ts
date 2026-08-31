@@ -54,7 +54,7 @@ import {
 	type RefreshProjectCloneResult,
 	refreshProjectClone,
 } from "./refresh.ts";
-import { parseProjectUrl } from "./url.ts";
+import { assertNoUserinfo, parseProjectUrl } from "./url.ts";
 
 export interface AddProjectInput {
 	readonly repo: ProjectsRepo;
@@ -111,6 +111,7 @@ export async function addProject(input: AddProjectInput): Promise<ProjectRow> {
 	// ever be registered — refused here, BEFORE anything is cloned, from
 	// the single enforcement site every surface shares.
 	assertGitUrlAllowlisted(input.publicAllowlist, gitUrl);
+	assertNoUserinfo(gitUrl);
 	const parsed = parseProjectUrl(gitUrl, input.forge);
 
 	const existing = await repo.findByGitUrl(gitUrl);

@@ -44,7 +44,14 @@ import type {
 	RepoRef,
 } from "../contract.ts";
 import { readJson, readText } from "../github/readers.ts";
-import { buildMatches, parseBuild, pickTimelineLogId, rollUp } from "./checks.ts";
+import {
+	branchFilter,
+	buildMatches,
+	isCommitSha,
+	parseBuild,
+	pickTimelineLogId,
+	rollUp,
+} from "./checks.ts";
 import { ADO_API_VERSION, requestAdo, type TransportError } from "./http.ts";
 import {
 	ADO_FORGE_KIND,
@@ -280,11 +287,18 @@ export class AdoForge implements Forge {
 		const token = this.credential(ref);
 		if (!token.ok) return err(token.error);
 		const { repo } = unpackAdoRef(ref);
+		// A branch ref narrows the scan server-side, so the commit's builds
+		// cannot age out of the window in a busy project. `sourceVersion` has
+		// no server filter, so a SHA still relies on the recency window.
 		const result = await this.request(ref, {
 			path: "builds",
 			area: "build",
 			context: "GET /build/builds",
-			query: { $top: String(BUILD_SCAN_TOP), queryOrder: "queueTimeDescending" },
+			query: {
+				$top: String(BUILD_SCAN_TOP),
+				queryOrder: "queueTimeDescending",
+				...(isCommitSha(commit) ? {} : { branchName: branchFilter(commit) }),
+			},
 		});
 		if (!result.ok) return err(toForgeError(result.error));
 		const body = (await readJson(result.response)) as { value?: unknown } | null;

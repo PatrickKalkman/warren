@@ -93,7 +93,9 @@ export function parseAdoCoordinate(input: string): AdoCoordinate | null {
 	const trimmed = input.trim();
 	const scp = /^git@ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)\/?$/.exec(trimmed);
 	if (scp !== null) {
-		return finish(scp[1] as string, decodeURIComponent(scp[2] as string), scp[3] as string);
+		const project = safeDecode(scp[2] as string);
+		if (project === null) return null;
+		return finish(scp[1] as string, project, scp[3] as string);
 	}
 
 	let parsed: URL;
@@ -104,10 +106,12 @@ export function parseAdoCoordinate(input: string): AdoCoordinate | null {
 	}
 	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
 	const host = parsed.hostname.toLowerCase();
-	const parts = parsed.pathname
+	const decoded = parsed.pathname
 		.split("/")
 		.filter((p) => p !== "")
-		.map((p) => decodeURIComponent(p));
+		.map(safeDecode);
+	if (decoded.some((p) => p === null)) return null;
+	const parts = decoded as string[];
 
 	if (host === ADO_HOST) return fromParts(parts[0], parts.slice(1));
 	const legacy = /^([a-z0-9-]+)\.visualstudio\.com$/.exec(host);
@@ -136,6 +140,15 @@ function fromParts(org: string | undefined, rest: string[]): AdoCoordinate | nul
 
 function stripGitSuffix(segment: string): string {
 	return segment.endsWith(".git") ? segment.slice(0, -4) : segment;
+}
+
+/** `null` for malformed percent-encoding: `parseRepoRef` never throws. */
+function safeDecode(segment: string): string | null {
+	try {
+		return decodeURIComponent(segment);
+	} catch {
+		return null;
+	}
 }
 
 function finish(org: string, project: string, repo: string): AdoCoordinate | null {

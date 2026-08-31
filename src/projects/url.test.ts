@@ -4,7 +4,7 @@ import { AdoForge } from "../forge/ado/provider.ts";
 import type { Forge } from "../forge/contract.ts";
 import { FakeForge } from "../forge/fake/fake-forge.ts";
 import { GitHubForge } from "../forge/github/provider.ts";
-import { parseForgeOwnedUrl, parseGitHubUrl, parseProjectUrl } from "./url.ts";
+import { assertNoUserinfo, parseForgeOwnedUrl, parseGitHubUrl, parseProjectUrl } from "./url.ts";
 
 describe("parseGitHubUrl", () => {
 	test("accepts https URLs with and without the .git suffix", () => {
@@ -150,14 +150,22 @@ describe("parseProjectUrl", () => {
 		);
 	});
 
-	test("refuses an https URL carrying a username, whatever the forge", () => {
+	test("tolerates userinfo — registration rejects it, the heal path must still parse the row", () => {
 		const ado = new AdoForge({ token: "t" });
-		expect(() => parseProjectUrl("https://org@dev.azure.com/org/Proj/_git/repo", ado)).toThrow(
-			/must not carry credentials or a username/,
-		);
-		expect(() => parseProjectUrl("https://x:secret@github.com/o/r.git", undefined)).toThrow(
-			/must not carry credentials/,
-		);
+		expect(parseProjectUrl("https://org@dev.azure.com/org/Proj/_git/repo", ado)).toEqual({
+			owner: "org-Proj",
+			name: "repo",
+		});
+		expect(parseProjectUrl("https://user@github.com/o/r.git", undefined)).toEqual({
+			owner: "o",
+			name: "r",
+		});
+	});
+
+	test("names the layout problem for an owned URL the forge cannot lay out on disk", () => {
+		const ado = new AdoForge({ token: "t" });
+		const url = "https://dev.azure.com/acme/Team%20(EU)/_git/widget";
+		expect(() => parseProjectUrl(url, ado)).toThrow(/cannot lay it out on disk/);
 	});
 
 	test("leaves the ssh user alone — it is not a credential", () => {
@@ -165,5 +173,22 @@ describe("parseProjectUrl", () => {
 			owner: "o",
 			name: "r",
 		});
+	});
+});
+
+describe("assertNoUserinfo", () => {
+	test("refuses https URLs carrying a username or credentials", () => {
+		expect(() => assertNoUserinfo("https://org@dev.azure.com/org/Proj/_git/repo")).toThrow(
+			/must not carry credentials or a username/,
+		);
+		expect(() => assertNoUserinfo("https://x:secret@github.com/o/r.git")).toThrow(
+			/must not carry credentials/,
+		);
+	});
+
+	test("leaves the ssh user and clean URLs alone", () => {
+		expect(() => assertNoUserinfo("ssh://git@github.com/o/r.git")).not.toThrow();
+		expect(() => assertNoUserinfo("https://github.com/o/r.git")).not.toThrow();
+		expect(() => assertNoUserinfo("not a url")).not.toThrow();
 	});
 });

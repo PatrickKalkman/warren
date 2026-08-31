@@ -90,8 +90,19 @@ export function parseRepoFile(contents: string): readonly string[] {
  * which spelling the manifest and the database each happen to use.
  */
 export function repoKey(gitUrl: string): string {
-	const { owner, name } = parseGitHubUrl(gitUrl);
-	return `${owner.toLowerCase()}/${name.toLowerCase()}`;
+	try {
+		const { owner, name } = parseGitHubUrl(gitUrl);
+		return `${owner.toLowerCase()}/${name.toLowerCase()}`;
+	} catch {
+		// A URL outside the GitHub grammars (an Azure DevOps row, say) still
+		// needs a stable dedupe key; this client-side script cannot resolve
+		// a forge, so the normalized raw URL stands in.
+		return gitUrl
+			.trim()
+			.toLowerCase()
+			.replace(/\/+$/, "")
+			.replace(/\.git$/, "");
+	}
 }
 
 export interface Plan {
