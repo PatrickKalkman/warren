@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RepoRef } from "../contract.ts";
 import { jsonResponse, recordingFetch } from "../github/test-helpers.ts";
 import { ADO_PR_DESCRIPTION_MAX, AdoForge, fitPrDescription } from "./provider.ts";
-import { stubAdoServer } from "./stub-server.ts";
+import { REPO_GUID, stubAdoServer } from "./stub-server.ts";
 
 const CLONE_URL = "https://dev.azure.com/acme/Widgets/_git/widget";
 
@@ -179,7 +179,17 @@ describe("AdoForge pull requests", () => {
 		const sent = stub.state.prs[0]?.description ?? "";
 		expect(sent.length).toBe(ADO_PR_DESCRIPTION_MAX);
 		expect(sent.startsWith("xxxx")).toBe(true);
-		expect(sent).toEndWith("4000-character limit)");
+		expect(sent).toContain("4000-character limit)");
+	});
+
+	test("fitPrDescription cuts the middle so trailing fragments survive", () => {
+		const tail = "<!-- warren:preview-start -->\nhttps://p.example\n<!-- warren:preview-end -->";
+		const body = "y".repeat(ADO_PR_DESCRIPTION_MAX + 500) + tail;
+		const fitted = fitPrDescription(body);
+		expect(fitted.length).toBeLessThanOrEqual(ADO_PR_DESCRIPTION_MAX);
+		expect(fitted.startsWith("yyyy")).toBe(true);
+		expect(fitted).toContain("<!-- warren:preview-start -->");
+		expect(fitted).toEndWith("<!-- warren:preview-end -->");
 	});
 
 	test("setPullRequestBody applies the same description cap", async () => {
@@ -270,6 +280,88 @@ describe("AdoForge checks and logs", () => {
 		expect(checks.value.runs[0]?.conclusion).toBe("failure");
 		const buildCall = stub.state.calls.find((c) => c.url.includes("/build/builds"));
 		expect(buildCall?.url).toContain("branchName=refs%2Fheads%2Fwarren%2Frun_1");
+	});
+
+	test("listChecks sees PR build-validation builds on the merge ref", async () => {
+		const sha = "d".repeat(40);
+		const { forge, ref } = setup({
+			prs: [
+				{
+					pullRequestId: 12,
+					title: "run_1",
+					description: "",
+					sourceRefName: "refs/heads/warren/run_1",
+					targetRefName: "refs/heads/main",
+					status: "active",
+					closedDate: null,
+					headSha: sha,
+				},
+			],
+			builds: [
+				{
+					id: 9,
+					sourceVersion: sha,
+					sourceBranch: "refs/pull/12/merge",
+					status: "completed",
+					result: "failed",
+					definitionName: "PR validation",
+				},
+			],
+		});
+		const checks = await forge.listChecks(ref, "warren/run_1");
+		expect(checks.ok).toBe(true);
+		if (!checks.ok) return;
+		expect(checks.value.conclusion).toBe("failing");
+		expect(checks.value.runs.map((r) => r.jobId)).toEqual(["9"]);
+	});
+
+	test("listChecks keeps only the newest build per definition, so a fixed branch reads passing", async () => {
+		const sha = "e".repeat(40);
+		const { forge, ref } = setup({
+			builds: [
+				{
+					id: 21,
+					sourceVersion: sha,
+					sourceBranch: "refs/heads/warren/run_2",
+					status: "completed",
+					result: "succeeded",
+					definitionName: "CI",
+				},
+				{
+					id: 20,
+					sourceVersion: "f".repeat(40),
+					sourceBranch: "refs/heads/warren/run_2",
+					status: "completed",
+					result: "failed",
+					definitionName: "CI",
+				},
+			],
+		});
+		const checks = await forge.listChecks(ref, "warren/run_2");
+		expect(checks.ok).toBe(true);
+		if (!checks.ok) return;
+		expect(checks.value.conclusion).toBe("passing");
+		expect(checks.value.runs.map((r) => r.jobId)).toEqual(["21"]);
+	});
+
+	test("listChecks scopes the build scan to the repository GUID", async () => {
+		const sha = "1".repeat(40);
+		const { forge, ref, stub } = setup({
+			builds: [
+				{
+					id: 5,
+					sourceVersion: sha,
+					status: "completed",
+					result: "succeeded",
+					definitionName: "CI",
+				},
+			],
+		});
+		const checks = await forge.listChecks(ref, sha);
+		expect(checks.ok).toBe(true);
+		const buildCall = stub.state.calls.find((c) => c.url.includes("/build/builds"));
+		expect(buildCall?.url).toContain(`repositoryId=${REPO_GUID}`);
+		expect(buildCall?.url).toContain("repositoryType=TfsGit");
 	});
 
 	test("fetchJobLogTail tails the failed task's log to maxBytes", async () => {

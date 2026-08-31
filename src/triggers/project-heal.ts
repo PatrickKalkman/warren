@@ -243,14 +243,14 @@ async function attemptReclone(
 	recloneFn: typeof recloneMissingProject,
 	project: ProjectRow,
 ): Promise<void> {
-	const token =
+	const credential =
 		input.mintCredential !== undefined ? await input.mintCredential(project) : undefined;
 	await recloneFn({
 		project,
 		config: input.config,
 		spawn: input.spawn,
 		...(input.forge !== undefined ? { forge: input.forge } : {}),
-		...(token !== undefined ? { token } : {}),
+		...(credential !== undefined ? { gitCredential: credential } : {}),
 		...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
 	});
 }

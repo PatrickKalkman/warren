@@ -20,6 +20,7 @@
  * `null` so the registry can try the next forge (§1.1).
  */
 
+import { createHash } from "node:crypto";
 import type { RepoRef } from "../contract.ts";
 
 /** Registry key this forge answers to (`FORGE_KINDS`). */
@@ -38,22 +39,30 @@ export interface AdoCoordinate {
 }
 
 /**
- * Path-safety rule for the organization and repository segments, the same
- * character set `src/projects/url.ts` guards `/data/projects` with.
+ * The character set `src/projects/url.ts` guards `/data/projects` with.
+ * Segments outside it still parse — Azure DevOps allows spaces and
+ * punctuation in project and repository names — but `adoRepoLayout`
+ * sanitizes them onto this set before they touch a filesystem path.
  */
 const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 /**
- * Project names are looser than repository names: Azure DevOps allows
- * spaces and a few punctuation marks. The project only ever travels
- * URL-encoded in API paths, so it is held to "printable, no slash".
+ * Project and repository names travel URL-encoded in API paths, so both
+ * are held to "printable, no slash". Organizations follow Azure DevOps'
+ * own stricter rule (letters, digits, hyphen).
  */
-const PROJECT_SEGMENT = /^[^/\\\s][^/\\]*$/;
+const LOOSE_SEGMENT = /^[^/\\\s][^/\\]*$/;
+
+const ORG_SEGMENT = /^[A-Za-z0-9-]+$/;
 
 function isSafeSegment(segment: string): boolean {
 	return (
 		SAFE_SEGMENT.test(segment) && segment !== "." && segment !== ".." && !segment.startsWith("-")
 	);
+}
+
+function isLooseSegment(segment: string): boolean {
+	return LOOSE_SEGMENT.test(segment) && segment !== "." && segment !== "..";
 }
 
 /** Parse a clone or pull-request URL into this forge's opaque ref. */
@@ -66,32 +75,53 @@ export function parseAdoRepoRef(cloneUrl: string): RepoRef | null {
 /** Unpack a key this arm produced. Only the provider calls this. */
 export function unpackAdoRef(ref: RepoRef): AdoCoordinate {
 	const [org = "", project = "", repo = ""] = ref.key.slice(KEY_PREFIX.length).split("/");
-	return { org, project: decodeURIComponent(project), repo };
+	return { org, project: decodeURIComponent(project), repo: decodeURIComponent(repo) };
 }
 
 function packKey(c: AdoCoordinate): string {
-	return `${KEY_PREFIX}${c.org}/${encodeURIComponent(c.project)}/${c.repo}`;
+	return `${KEY_PREFIX}${c.org}/${encodeURIComponent(c.project)}/${encodeURIComponent(c.repo)}`;
 }
 
 /**
  * The on-disk layout for `/data/projects/<owner>/<name>` (`Forge.repoLayout`).
  * The organization and project fold into one owner segment so two
  * repositories with the same name in different projects never collide.
- * Spaces in a project name become dashes, the only transformation needed
- * to keep the segment path-safe.
+ *
+ * The fold is injective. A literal `-` in either part doubles (`--`)
+ * before the single-`-` join, so `acme-web`/`app` and `acme`/`web-app`
+ * land on distinct owners. A part outside the path-safe character set is
+ * sanitized and suffixed with a short content hash, so `My Project` and
+ * `My-Project` stay distinct too. A name already on the safe set keeps
+ * its spelling.
  */
 export function adoRepoLayout(cloneUrl: string): { owner: string; name: string } | null {
 	const coordinate = parseAdoCoordinate(cloneUrl);
 	if (coordinate === null) return null;
-	const owner = `${coordinate.org}-${coordinate.project.replace(/\s+/g, "-")}`;
-	if (!isSafeSegment(owner)) return null;
-	return { owner, name: coordinate.repo };
+	const owner = `${escapeDashes(coordinate.org)}-${layoutPart(coordinate.project)}`;
+	const name = isSafeSegment(coordinate.repo) ? coordinate.repo : layoutPart(coordinate.repo);
+	if (!isSafeSegment(owner) || !isSafeSegment(name)) return null;
+	return { owner, name };
+}
+
+function escapeDashes(part: string): string {
+	return part.replace(/-/g, "--");
+}
+
+/** A path-safe stand-in for one coordinate part, injective across parts. */
+function layoutPart(part: string): string {
+	if (isSafeSegment(part) && SAFE_SEGMENT.test(part)) return escapeDashes(part);
+	const sanitized = part.replace(/[^A-Za-z0-9._]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+	const digest = createHash("sha256").update(part).digest("hex").slice(0, 8);
+	return sanitized === "" ? digest : `${sanitized}-${digest}`;
 }
 
 /** Extract the coordinate from any accepted grammar; `null` when foreign. */
 export function parseAdoCoordinate(input: string): AdoCoordinate | null {
 	const trimmed = input.trim();
-	const scp = /^git@ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)\/?$/.exec(trimmed);
+	const scp =
+		/^git@(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+?)\/?$/.exec(
+			trimmed,
+		);
 	if (scp !== null) {
 		const project = safeDecode(scp[2] as string);
 		if (project === null) return null;
@@ -152,7 +182,7 @@ function safeDecode(segment: string): string | null {
 }
 
 function finish(org: string, project: string, repo: string): AdoCoordinate | null {
-	if (!isSafeSegment(org) || !isSafeSegment(repo)) return null;
-	if (!PROJECT_SEGMENT.test(project) || project === "." || project === "..") return null;
+	if (!ORG_SEGMENT.test(org)) return null;
+	if (!isLooseSegment(project) || !isLooseSegment(repo)) return null;
 	return { org, project, repo };
 }

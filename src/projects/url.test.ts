@@ -162,10 +162,10 @@ describe("parseProjectUrl", () => {
 		});
 	});
 
-	test("names the layout problem for an owned URL the forge cannot lay out on disk", () => {
+	test("lays a punctuated project name out under a sanitized, disambiguated owner", () => {
 		const ado = new AdoForge({ token: "t" });
 		const url = "https://dev.azure.com/acme/Team%20(EU)/_git/widget";
-		expect(() => parseProjectUrl(url, ado)).toThrow(/cannot lay it out on disk/);
+		expect(parseProjectUrl(url, ado)).toEqual({ owner: "acme-Team-EU-912e3508", name: "widget" });
 	});
 
 	test("leaves the ssh user alone — it is not a credential", () => {

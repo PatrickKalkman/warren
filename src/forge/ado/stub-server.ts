@@ -33,6 +33,9 @@ interface StubBuild {
 	definitionName: string;
 }
 
+/** The GUID the repository-metadata route answers with. */
+export const REPO_GUID = "11111111-2222-3333-4444-555555555555";
+
 export interface AdoStubState {
 	prs: StubPr[];
 	nextNumber: number;
@@ -240,6 +243,9 @@ function route(state: AdoStubState, method: string, url: URL, bodyText: string |
 		return jsonResponse(404, { message: `stub: unrouted ${method} ${url.pathname}` });
 	}
 	if (parts[3] === "build") return routeBuild(state, parts.slice(4), url);
+	if (parts[3] === "git" && parts[4] === "repositories" && parts.length === 6) {
+		return jsonResponse(200, { id: REPO_GUID, name: decodeURIComponent(parts[5] as string) });
+	}
 	if (parts[3] === "git" && parts[4] === "repositories" && parts.length > 6) {
 		return routeGit(state, method, parts.slice(6), url, bodyText);
 	}

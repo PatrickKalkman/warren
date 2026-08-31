@@ -15,6 +15,7 @@
  * otherwise hold a reap or a poller tick open indefinitely.
  */
 
+import type { ForgeError, ForgeResult } from "../contract.ts";
 import {
 	networkError,
 	parseRetryAfterMs,
@@ -24,6 +25,24 @@ import { readText, truncate } from "../github/readers.ts";
 import { type GitHubRetryOptions as RetryOptions, withGitHubRetry } from "../github/retry.ts";
 
 export type { TransportError };
+
+/** Result helpers shared by the arm's modules. */
+export function ok<T>(value: T): ForgeResult<T> {
+	return { ok: true, value };
+}
+
+export function err<T>(error: ForgeError): ForgeResult<T> {
+	return { ok: false, error };
+}
+
+/** Transport-kind vocabulary aligns with the seam kinds — the map is a rename. */
+export function toForgeError(error: TransportError): ForgeError {
+	const forgeError: ForgeError = { kind: error.kind, status: error.status, detail: error.message };
+	if (error.kind === "rate_limited" && error.retryAfterMs !== null) {
+		return { ...forgeError, retryAfterMs: error.retryAfterMs };
+	}
+	return forgeError;
+}
 
 /** The REST API version every request pins. */
 export const ADO_API_VERSION = "7.1";
@@ -117,17 +136,41 @@ export async function requestAdo(input: AdoRequestInput): Promise<AdoTransportRe
 	const timeoutMs = input.timeoutMs ?? DEFAULT_ADO_TIMEOUT_MS;
 
 	const retried = await withGitHubRetry(async () => {
+		// An explicit timer rather than `AbortSignal.timeout`: that signal
+		// does not retain the event loop on every platform, so a pending
+		// fetch could outlive the deadline it was supposed to cut.
+		const controller = new AbortController();
+		const deadline = setTimeout(
+			() => controller.abort(new DOMException("request timed out at the deadline", "TimeoutError")),
+			timeoutMs,
+		);
 		let res: Response;
 		try {
-			res = await fetchImpl(input.url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+			res = await fetchImpl(input.url, { ...init, signal: controller.signal });
 		} catch (err) {
 			return { ok: false, error: networkError(err, input.context) };
+		} finally {
+			clearTimeout(deadline);
 		}
 		if (!res.ok || res.status === 203) {
 			const text = truncate(await readText(res), ERROR_BODY_MAX_CHARS);
 			return {
 				ok: false,
 				error: classifyAdoHttpError(res.status, res.headers, text, input.context),
+			};
+		}
+		// A rejected credential can also come back as a 200 HTML sign-in
+		// page. Every endpoint this transport serves answers JSON (or plain
+		// text for logs), so 2xx HTML is an auth failure, not a payload.
+		if ((res.headers.get("content-type") ?? "").includes("text/html")) {
+			return {
+				ok: false,
+				error: {
+					kind: "unauthorized" as const,
+					status: res.status,
+					retryAfterMs: null,
+					message: `${input.context} answered ${res.status} with a sign-in page — credential rejected`,
+				},
 			};
 		}
 		return { ok: true, value: res };

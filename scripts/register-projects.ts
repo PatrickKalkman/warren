@@ -34,6 +34,7 @@
  * point it at production by accident.
  */
 
+import { parseAdoCoordinate } from "../src/forge/ado/repo-ref.ts";
 import { parseGitHubUrl } from "../src/projects/url.ts";
 
 /**
@@ -94,9 +95,14 @@ export function repoKey(gitUrl: string): string {
 		const { owner, name } = parseGitHubUrl(gitUrl);
 		return `${owner.toLowerCase()}/${name.toLowerCase()}`;
 	} catch {
-		// A URL outside the GitHub grammars (an Azure DevOps row, say) still
-		// needs a stable dedupe key; this client-side script cannot resolve
-		// a forge, so the normalized raw URL stands in.
+		// An Azure DevOps row keys on its coordinate, so every accepted
+		// grammar of the same repository (https, ssh, legacy host) dedupes
+		// to one key. Anything else falls back to the normalized raw URL.
+		const coordinate = parseAdoCoordinate(gitUrl);
+		if (coordinate !== null) {
+			const { org, project, repo } = coordinate;
+			return `ado:${org}/${project}/${repo}`.toLowerCase();
+		}
 		return gitUrl
 			.trim()
 			.toLowerCase()

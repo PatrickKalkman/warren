@@ -46,11 +46,23 @@ describe("parseAdoRepoRef", () => {
 		}
 	});
 
-	test("rejects path-unsafe org and repo segments", () => {
+	test("rejects a traversal org or project, owns loose repo names", () => {
 		expect(parseAdoRepoRef("https://dev.azure.com/../Widgets/_git/widget")).toBeNull();
-		expect(parseAdoRepoRef("https://dev.azure.com/acme/Widgets/_git/-widget")).toBeNull();
-		expect(parseAdoRepoRef("https://dev.azure.com/acme/Widgets/_git/wid%20get")).toBeNull();
+		expect(parseAdoRepoRef("https://dev.azure.com/ac%20me/Widgets/_git/widget")).toBeNull();
 		expect(parseAdoCoordinate("https://dev.azure.com/acme/../_git/widget")).toBeNull();
+		// Azure DevOps allows spaces and punctuation in repository names.
+		expect(parseAdoCoordinate("https://dev.azure.com/acme/Widgets/_git/wid%20get")?.repo).toBe(
+			"wid get",
+		);
+		expect(parseAdoCoordinate("https://dev.azure.com/acme/Widgets/_git/-widget")?.repo).toBe(
+			"-widget",
+		);
+	});
+
+	test("owns the legacy vs-ssh host", () => {
+		expect(parseAdoRepoRef("git@vs-ssh.visualstudio.com:v3/acme/Widgets/widget")?.key).toBe(
+			"dev.azure.com/acme/Widgets/widget",
+		);
 	});
 });
 
@@ -62,10 +74,32 @@ describe("adoRepoLayout", () => {
 		});
 	});
 
-	test("turns spaces in the project name into dashes", () => {
+	test("gives a punctuated project a sanitized, hash-disambiguated owner", () => {
 		expect(adoRepoLayout("https://dev.azure.com/acme/My%20Project/_git/widget")).toEqual({
-			owner: "acme-My-Project",
+			owner: "acme-My-Project-51e38ecc",
 			name: "widget",
+		});
+		expect(adoRepoLayout("https://dev.azure.com/acme/My-Project/_git/widget")).toEqual({
+			owner: "acme-My--Project",
+			name: "widget",
+		});
+	});
+
+	test("the org/project fold is injective across hyphen placements", () => {
+		expect(adoRepoLayout("https://dev.azure.com/acme-web/app/_git/widget")).toEqual({
+			owner: "acme--web-app",
+			name: "widget",
+		});
+		expect(adoRepoLayout("https://dev.azure.com/acme/web-app/_git/widget")).toEqual({
+			owner: "acme-web--app",
+			name: "widget",
+		});
+	});
+
+	test("sanitizes and disambiguates a loose repository name", () => {
+		expect(adoRepoLayout("https://dev.azure.com/acme/Widgets/_git/wid%20get")).toEqual({
+			owner: "acme-Widgets",
+			name: "wid-get-cb0b05be",
 		});
 	});
 

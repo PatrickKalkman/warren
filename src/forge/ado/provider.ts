@@ -28,11 +28,9 @@
  */
 
 import type {
-	CheckRun,
 	CheckSummary,
 	Forge,
 	ForgeCapabilities,
-	ForgeError,
 	ForgeRepoListing,
 	ForgeResult,
 	GitCredential,
@@ -43,16 +41,10 @@ import type {
 	PullRequestState,
 	RepoRef,
 } from "../contract.ts";
-import { readJson, readText } from "../github/readers.ts";
-import {
-	branchFilter,
-	buildMatches,
-	isCommitSha,
-	parseBuild,
-	pickTimelineLogId,
-	rollUp,
-} from "./checks.ts";
-import { ADO_API_VERSION, requestAdo, type TransportError } from "./http.ts";
+import { readJson } from "../github/readers.ts";
+import { scanChecks, scanJobLogTail } from "./build-scan.ts";
+import { branchFilter } from "./checks.ts";
+import { ADO_API_VERSION, err, ok, requestAdo, toForgeError } from "./http.ts";
 import {
 	ADO_FORGE_KIND,
 	ADO_HOST,
@@ -70,9 +62,6 @@ const PAT_USERNAME = "pat";
 /** The all-zero object id that deletes a ref through the refs API. */
 const ZERO_OBJECT_ID = "0000000000000000000000000000000000000000";
 
-/** How many recent builds `listChecks` scans for the commit. */
-const BUILD_SCAN_TOP = 100;
-
 /**
  * Azure DevOps rejects a pull-request description longer than 4000
  * characters (`InvalidArgumentValueException`). GitHub allows 65536, and
@@ -83,11 +72,20 @@ export const ADO_PR_DESCRIPTION_MAX = 4000;
 
 const TRUNCATION_MARKER = "\n\n…(description truncated at Azure DevOps' 4000-character limit)";
 
-/** Cut a PR description to the Azure DevOps limit, marking the cut. */
+/** Kept from the end of an over-long body: warren appends machine-read fragments (preview markers) there. */
+const TAIL_KEEP = 1000;
+
+/**
+ * Cut a PR description to the Azure DevOps limit, marking the cut. The
+ * cut removes the middle, not the end: warren appends machine-read
+ * fragments (the preview block, run metadata) to the tail, and a
+ * head-only slice would silently drop them.
+ */
 export function fitPrDescription(body: string): string {
 	if (body.length <= ADO_PR_DESCRIPTION_MAX) return body;
-	const keep = ADO_PR_DESCRIPTION_MAX - TRUNCATION_MARKER.length;
-	return body.slice(0, keep) + TRUNCATION_MARKER;
+	const tail = body.slice(-TAIL_KEEP);
+	const keep = ADO_PR_DESCRIPTION_MAX - TRUNCATION_MARKER.length - tail.length;
+	return body.slice(0, keep) + TRUNCATION_MARKER + tail;
 }
 
 export interface AdoForgeOptions {
@@ -99,23 +97,6 @@ export interface AdoForgeOptions {
 	readonly timeoutMs?: number;
 }
 
-function ok<T>(value: T): ForgeResult<T> {
-	return { ok: true, value };
-}
-
-function err<T>(error: ForgeError): ForgeResult<T> {
-	return { ok: false, error };
-}
-
-/** Transport-kind vocabulary aligns with the seam kinds — the map is a rename. */
-function toForgeError(error: TransportError): ForgeError {
-	const forgeError: ForgeError = { kind: error.kind, status: error.status, detail: error.message };
-	if (error.kind === "rate_limited" && error.retryAfterMs !== null) {
-		return { ...forgeError, retryAfterMs: error.retryAfterMs };
-	}
-	return forgeError;
-}
-
 interface AdoPrJson {
 	readonly pullRequestId?: unknown;
 	readonly status?: unknown;
@@ -125,8 +106,17 @@ interface AdoPrJson {
 	readonly lastMergeSourceCommit?: unknown;
 }
 
-function branchRef(branch: string): string {
-	return `refs/heads/${branch}`;
+/**
+ * Azure DevOps refuses a refs update with `success: false` plus an
+ * `updateStatus` naming why. Only the concurrency shapes are conflicts;
+ * a permissions refusal must surface as `forbidden` so the operator sees
+ * the PAT scope problem instead of a phantom race.
+ */
+function refUpdateErrorKind(status: string): "conflict" | "forbidden" | "http_error" {
+	if (status === "writePermissionRequired" || status === "permissionRequired") return "forbidden";
+	if (status === "staleOldObjectId" || status === "forcePushRequired") return "conflict";
+	if (status === "invalidRefName") return "http_error";
+	return "conflict";
 }
 
 function branchName(refName: unknown): string {
@@ -139,6 +129,8 @@ export class AdoForge implements Forge {
 	private readonly token: string;
 	private readonly fetch: typeof fetch;
 	private readonly timeoutMs: number | undefined;
+	/** `RepoRef.key` → repository GUID, resolved once per process. */
+	private readonly repoGuids = new Map<string, string>();
 
 	constructor(options: AdoForgeOptions) {
 		this.token = options.token;
@@ -185,8 +177,8 @@ export class AdoForge implements Forge {
 			method: "POST",
 			context: "POST /pullrequests",
 			body: {
-				sourceRefName: branchRef(req.headBranch),
-				targetRefName: branchRef(req.baseBranch),
+				sourceRefName: branchFilter(req.headBranch),
+				targetRefName: branchFilter(req.baseBranch),
 				title: req.title,
 				description: fitPrDescription(req.body),
 				...(req.draft !== undefined ? { isDraft: req.draft } : {}),
@@ -218,8 +210,8 @@ export class AdoForge implements Forge {
 			path: "pullrequests",
 			context: "GET /pullrequests",
 			query: {
-				"searchCriteria.sourceRefName": branchRef(q.headBranch),
-				"searchCriteria.targetRefName": branchRef(q.baseBranch),
+				"searchCriteria.sourceRefName": branchFilter(q.headBranch),
+				"searchCriteria.targetRefName": branchFilter(q.baseBranch),
 				"searchCriteria.status": state === "open" ? "active" : "all",
 				$top: "100",
 			},
@@ -286,28 +278,7 @@ export class AdoForge implements Forge {
 	async listChecks(ref: RepoRef, commit: string): Promise<ForgeResult<CheckSummary>> {
 		const token = this.credential(ref);
 		if (!token.ok) return err(token.error);
-		const { repo } = unpackAdoRef(ref);
-		// A branch ref narrows the scan server-side, so the commit's builds
-		// cannot age out of the window in a busy project. `sourceVersion` has
-		// no server filter, so a SHA still relies on the recency window.
-		const result = await this.request(ref, {
-			path: "builds",
-			area: "build",
-			context: "GET /build/builds",
-			query: {
-				$top: String(BUILD_SCAN_TOP),
-				queryOrder: "queueTimeDescending",
-				...(isCommitSha(commit) ? {} : { branchName: branchFilter(commit) }),
-			},
-		});
-		if (!result.ok) return err(toForgeError(result.error));
-		const body = (await readJson(result.response)) as { value?: unknown } | null;
-		const raw = Array.isArray(body?.value) ? body.value : [];
-		const runs = raw
-			.filter((build) => buildMatches(build, repo, commit))
-			.map(parseBuild)
-			.filter((r): r is CheckRun => r !== null);
-		return ok({ conclusion: rollUp(runs), runs });
+		return scanChecks(this.scanDeps(ref), commit);
 	}
 
 	/** Best-effort by contract: any failure degrades to ok with `null`. */
@@ -316,27 +287,19 @@ export class AdoForge implements Forge {
 		jobId: string,
 		maxBytes: number,
 	): Promise<ForgeResult<string | null>> {
-		if (maxBytes <= 0) return ok(null);
 		const token = this.credential(ref);
 		if (!token.ok) return ok(null);
-		const timeline = await this.request(ref, {
-			path: `builds/${encodeURIComponent(jobId)}/timeline`,
-			area: "build",
-			context: `GET /build/builds/${jobId}/timeline`,
-		});
-		if (!timeline.ok) return ok(null);
-		const logId = pickTimelineLogId(await readJson(timeline.response));
-		if (logId === null) return ok(null);
-		const log = await this.request(ref, {
-			path: `builds/${encodeURIComponent(jobId)}/logs/${logId}`,
-			area: "build",
-			accept: "text/plain",
-			context: `GET /build/builds/${jobId}/logs/${logId}`,
-		});
-		if (!log.ok) return ok(null);
-		const text = (await readText(log.response)).replace(/\s+$/, "");
-		if (text === "") return ok(null);
-		return ok(text.length <= maxBytes ? text : text.slice(text.length - maxBytes));
+		return scanJobLogTail(this.scanDeps(ref), jobId, maxBytes);
+	}
+
+	/** The build-scan module's view of this instance, bound to one ref. */
+	private scanDeps(ref: RepoRef) {
+		return {
+			request: (input: Parameters<AdoForge["request"]>[1]) => this.request(ref, input),
+			repo: unpackAdoRef(ref).repo,
+			refKey: ref.key,
+			repoGuids: this.repoGuids,
+		};
 	}
 
 	async deleteBranch(ref: RepoRef, branch: string): Promise<ForgeResult<void>> {
@@ -352,7 +315,7 @@ export class AdoForge implements Forge {
 		const list = Array.isArray(refs?.value)
 			? (refs.value as { name?: unknown; objectId?: unknown }[])
 			: [];
-		const match = list.find((r) => r.name === branchRef(branch));
+		const match = list.find((r) => r.name === branchFilter(branch));
 		if (match === undefined || typeof match.objectId !== "string") {
 			return err({ kind: "not_found", detail: `branch ${branch} does not exist on the remote` });
 		}
@@ -360,7 +323,9 @@ export class AdoForge implements Forge {
 			path: "refs",
 			method: "POST",
 			context: `POST /refs (delete heads/${branch})`,
-			body: [{ name: branchRef(branch), oldObjectId: match.objectId, newObjectId: ZERO_OBJECT_ID }],
+			body: [
+				{ name: branchFilter(branch), oldObjectId: match.objectId, newObjectId: ZERO_OBJECT_ID },
+			],
 		});
 		if (!update.ok) return err(toForgeError(update.error));
 		const outcome = (await readJson(update.response)) as { value?: unknown } | null;
@@ -368,9 +333,10 @@ export class AdoForge implements Forge {
 			? (outcome.value[0] as { success?: unknown; updateStatus?: unknown })
 			: undefined;
 		if (first?.success !== true) {
+			const status = String(first?.updateStatus ?? "no result");
 			return err({
-				kind: "conflict",
-				detail: `deleting heads/${branch} was refused: ${String(first?.updateStatus ?? "no result")}`,
+				kind: refUpdateErrorKind(status),
+				detail: `deleting heads/${branch} was refused: ${status}`,
 			});
 		}
 		return ok(undefined);
@@ -418,7 +384,7 @@ export class AdoForge implements Forge {
 		ref: RepoRef,
 		input: {
 			path: string;
-			area?: "git" | "build";
+			area?: "git" | "build" | "project-git";
 			method?: "GET" | "POST" | "PATCH";
 			body?: unknown;
 			query?: Record<string, string>;
@@ -431,7 +397,9 @@ export class AdoForge implements Forge {
 		const resource =
 			input.area === "build"
 				? `_apis/build/${input.path}`
-				: `_apis/git/repositories/${encodeURIComponent(coordinate.repo)}/${input.path}`;
+				: input.area === "project-git"
+					? `_apis/git/${input.path}`
+					: `_apis/git/repositories/${encodeURIComponent(coordinate.repo)}/${input.path}`;
 		return requestAdo({
 			url: `${projectUrl(coordinate)}/${resource}?${params.toString()}`,
 			method: input.method ?? "GET",

@@ -24,9 +24,17 @@ Releases **0.9.10 and earlier** live in
   optional method, `repoLayout`, so a forge whose clone URLs carry a
   deeper coordinate than `<owner>/<name>` can name the on-disk layout
   itself; `parseProjectUrl` now lives once in `src/projects/url.ts` and
-  the project re-clone healer uses it too. A clone URL carrying a
-  username (`https://<org>@dev.azure.com/…`) is refused at registration,
-  because warren's credential rewrite never matches such an authority.
+  the project re-clone healer uses it too — the healer also receives the
+  boot-resolved forge and the minted credential, so a non-GitHub project
+  whose clone vanished heals. A clone URL carrying a username
+  (`https://<org>@dev.azure.com/…`) is refused at registration, because
+  warren's credential rewrite never matches such an authority; a row
+  registered before this rule keeps parsing on the heal path. The
+  org/project on-disk fold is injective (doubled-dash escaping, content
+  hashes for punctuated names), `listChecks` covers PR build-validation
+  builds on `refs/pull/<id>/merge` and scopes its scan to the repository
+  GUID, build results fold to the check-run conclusion vocabulary, and a
+  2xx HTML sign-in page reads as a rejected credential.
 
 ### Changed
 

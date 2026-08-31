@@ -60,15 +60,31 @@ export function parseBuild(raw: unknown): CheckRun | null {
  * True when the build row ran against `ref` in the repository named
  * `repo`. `ref` is a commit SHA or a branch name — the contract passes a
  * commit, but the ci-fixer polls by run branch, and the GitHub arm's
- * endpoint accepts either, so this arm matches both shapes too.
+ * endpoint accepts either, so this arm matches both shapes too. For a
+ * branch, `extraRefs` names further acceptable `sourceBranch` values —
+ * the PR-validation merge ref, whose builds gate the canonical Azure
+ * DevOps CI setup. Repository names and commit SHAs compare
+ * case-insensitively, matching the service; branch refs are exact, as
+ * git refs are.
  */
-export function buildMatches(raw: unknown, repo: string, ref: string): boolean {
+export function buildMatches(
+	raw: unknown,
+	repo: string,
+	ref: string,
+	extraRefs: readonly string[] = [],
+): boolean {
 	if (typeof raw !== "object" || raw === null) return false;
 	const build = raw as BuildJson;
-	const wanted = COMMIT_SHA.test(ref) ? build.sourceVersion === ref : matchesBranch(build, ref);
+	const wanted = COMMIT_SHA.test(ref)
+		? typeof build.sourceVersion === "string" &&
+			build.sourceVersion.toLowerCase() === ref.toLowerCase()
+		: build.sourceBranch === branchFilter(ref) ||
+			extraRefs.some((extra) => build.sourceBranch === extra);
 	if (!wanted) return false;
 	const repository = build.repository as { name?: unknown } | undefined;
-	return typeof repository?.name === "string" ? repository.name === repo : true;
+	return typeof repository?.name === "string"
+		? repository.name.toLowerCase() === repo.toLowerCase()
+		: true;
 }
 
 /** The refs/heads/ prefix a branch ref carries on a build row. */
@@ -76,8 +92,25 @@ export function branchFilter(branch: string): string {
 	return `refs/heads/${branch}`;
 }
 
-function matchesBranch(build: BuildJson, branch: string): boolean {
-	return build.sourceBranch === branchFilter(branch);
+/**
+ * Keep only the newest build per pipeline definition. The input is the
+ * service's `queueTimeDescending` order, so the first row per definition
+ * wins. Without this, a branch's earlier failed build keeps the rollup
+ * `failing` after a later push turns CI green.
+ */
+export function latestPerDefinition(rows: readonly unknown[]): unknown[] {
+	const seen = new Set<string>();
+	const kept: unknown[] = [];
+	for (const raw of rows) {
+		const definition = (raw as BuildJson | null)?.definition as
+			| { id?: unknown; name?: unknown }
+			| undefined;
+		const key = `${String(definition?.id ?? "")}/${String(definition?.name ?? "")}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		kept.push(raw);
+	}
+	return kept;
 }
 
 /** True when `ref` is a full commit SHA rather than a branch name. */
