@@ -19,6 +19,14 @@
 /** The single protocol version warren's bridge speaks. */
 export const TRACKER_PROTOCOL_VERSION = "warren-tracker/v1";
 
+/**
+ * Warren's issue vocabulary (`src/core/wire-tracker.ts`). Every issue
+ * `status` on the wire is one of these; this server folds Jira's status
+ * categories onto them, because warren's bridge rejects anything else.
+ */
+export const ISSUE_STATUSES = ["open", "closed", "other"] as const;
+export type IssueStatus = (typeof ISSUE_STATUSES)[number];
+
 /** Reserved error code: the requested issue id does not exist. */
 export const TRACKER_ISSUE_NOT_FOUND_CODE = "issue_not_found";
 
@@ -42,19 +50,19 @@ export interface CapabilitiesResponse {
 	readonly capabilities: RemoteTrackerCapabilities;
 }
 
-/** `GET /issues/{id}` response. `status` is the tracker's RAW string. */
+/** `GET /issues/{id}` response. `status` is one of {@link ISSUE_STATUSES}. */
 export interface RemoteIssueResponse {
 	readonly id: string;
-	readonly status: string;
+	readonly status: IssueStatus;
 	readonly title?: string;
 	readonly description?: string;
 	readonly blockedBy?: readonly string[];
 	readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
-/** `GET /issue-statuses` response: a raw `id -> status` map. */
+/** `GET /issue-statuses` response: an `id -> status` map. */
 export interface RemoteIssueStatusesResponse {
-	readonly statuses: Readonly<Record<string, string>>;
+	readonly statuses: Readonly<Record<string, IssueStatus>>;
 }
 
 /** The error envelope every non-2xx response carries. */

@@ -10,10 +10,11 @@
  */
 
 import { writeFile } from "node:fs/promises";
+import type { IssueStatus } from "../protocol.ts";
 
 export interface FakeIssue {
 	id: string;
-	status: string;
+	status: IssueStatus;
 	title?: string;
 	description?: string;
 	blockedBy?: string[];

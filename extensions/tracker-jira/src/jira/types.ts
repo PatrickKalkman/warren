@@ -67,3 +67,6 @@ export interface JiraTransitionsResponse {
 
 /** The status category key Jira uses for every terminal status. */
 export const JIRA_DONE_CATEGORY = "done";
+
+/** The status category of an issue nobody has started; warren may claim from it. */
+export const JIRA_NEW_CATEGORY = "new";

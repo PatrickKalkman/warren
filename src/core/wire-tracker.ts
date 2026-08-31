@@ -33,11 +33,16 @@ export function isIssueStatus(value: unknown): value is IssueStatus {
 }
 
 /**
- * Normalize a tracker's raw status string onto {@link IssueStatus}.
+ * Normalize an IN-CORE tracker's raw status string onto {@link IssueStatus}.
  * Exact `'open'` and `'closed'` pass through; every other value — seeds'
- * `in_progress`, GitHub's reopened/duplicate closures, anything a future
- * tracker invents — folds to `'other'`, which is neither closed nor
- * claimably-open.
+ * `in_progress`, GitHub's reopened/duplicate closures — folds to
+ * `'other'`, which is neither closed nor claimably-open.
+ *
+ * This is only sound for a tracker whose vocabulary warren knows, which
+ * is why the remote bridge does not use it: a remote server's `Done` or
+ * `Closed` would fold to `other` and never read as finished. The
+ * warren-tracker/v1 protocol therefore requires servers to send
+ * {@link ISSUE_STATUSES} values, and the bridge rejects anything else.
  */
 export function normalizeIssueStatus(raw: string): IssueStatus {
 	if (raw === "closed") return "closed";

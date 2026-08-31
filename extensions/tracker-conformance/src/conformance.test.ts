@@ -8,8 +8,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { runConformanceSuite } from "./conformance.ts";
-import { startFakeTracker, type RunningFakeTracker } from "./fake-tracker/server.ts";
-import { FakeTrackerStore, type FakeTrackerFixture } from "./fake-tracker/store.ts";
+import { type RunningFakeTracker, startFakeTracker } from "./fake-tracker/server.ts";
+import { type FakeTrackerFixture, FakeTrackerStore } from "./fake-tracker/store.ts";
 
 const FULL_FIXTURE: FakeTrackerFixture = {
 	issues: [
@@ -20,7 +20,7 @@ const FULL_FIXTURE: FakeTrackerFixture = {
 			description: "probe issue",
 			scheduledFor: "2026-09-01T00:00:00.000Z",
 		},
-		{ id: "ext-2", status: "in_progress", title: "second", blockedBy: ["ext-1"] },
+		{ id: "ext-2", status: "other", title: "second", blockedBy: ["ext-1"] },
 		{ id: "ext-3", status: "closed", title: "already closed" },
 	],
 	plans: [
@@ -136,5 +136,49 @@ describe("runConformanceSuite against FakeTracker", () => {
 		const result = await runConformanceSuite({ baseUrl: broken.url, fetchImpl });
 		expect(result.passed).toBe(false);
 		expect(result.failures.some((f) => f.case === "issues/close-idempotent")).toBe(true);
+	});
+
+	test("fails a server that reports its raw statuses instead of warren's vocabulary", async () => {
+		// A server that is right about everything except the fold: every
+		// status leaves it in the tracker's own spelling. Warren's bridge
+		// rejects those, so the suite must too — on the shape cases and,
+		// decisively, on the post-close read that never says "closed".
+		const raw: Record<string, string> = { open: "To Do", closed: "Done", other: "In Progress" };
+		const spell = (status: unknown) =>
+			typeof status === "string" ? (raw[status] ?? status) : status;
+		const server = await startFakeTracker({ store: new FakeTrackerStore(BASE_ONLY_FIXTURE) });
+		running = server;
+		const fetchImpl: typeof fetch = Object.assign(
+			async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+				const response = await fetch(input, init);
+				const url = new URL(
+					typeof input === "string" ? input : (input as Request | URL).toString(),
+				);
+				const isRead = (init?.method ?? "GET") === "GET";
+				if (!response.ok || !isRead) return response;
+				if (url.pathname === "/issue-statuses") {
+					const body = (await response.json()) as { statuses: Record<string, unknown> };
+					const statuses = Object.fromEntries(
+						Object.entries(body.statuses).map(([id, status]) => [id, spell(status)]),
+					);
+					return Response.json({ statuses });
+				}
+				if (/^\/issues\/[^/]+$/.test(url.pathname)) {
+					const body = (await response.json()) as { status: unknown };
+					return Response.json({ ...body, status: spell(body.status) });
+				}
+				return response;
+			},
+			{ preconnect: () => {} },
+		);
+		const result = await runConformanceSuite({ baseUrl: server.url, fetchImpl });
+		expect(result.passed).toBe(false);
+		const failed = new Set(result.failures.map((f) => f.case));
+		expect(failed.has("issue-statuses/shape")).toBe(true);
+		expect(failed.has("issues/get")).toBe(true);
+		expect(failed.has("issues/close-reads-closed")).toBe(true);
+		expect(result.failures.find((f) => f.case === "issues/close-reads-closed")?.detail).toContain(
+			'"Done"',
+		);
 	});
 });
