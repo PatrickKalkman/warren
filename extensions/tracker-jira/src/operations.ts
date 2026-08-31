@@ -18,7 +18,7 @@
 import type { JiraTrackerConfig } from "./config.ts";
 import { JiraApiError, type JiraClient } from "./jira/client.ts";
 import { isDone, pickCloseTransition, toIssueResponse } from "./jira/map.ts";
-import type { RemoteIssueResponse } from "./protocol.ts";
+import type { IssueStatus, RemoteIssueResponse } from "./protocol.ts";
 import { TRACKER_ISSUE_NOT_FOUND_CODE } from "./protocol.ts";
 
 /** A failure already shaped for the wire. */
@@ -73,7 +73,7 @@ export async function readIssue(
 	}
 }
 
-export async function readStatuses(client: JiraClient): Promise<Record<string, string>> {
+export async function readStatuses(client: JiraClient): Promise<Record<string, IssueStatus>> {
 	try {
 		return await client.issueStatuses();
 	} catch (err) {

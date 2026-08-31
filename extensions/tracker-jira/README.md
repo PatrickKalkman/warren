@@ -92,8 +92,22 @@ docker run --rm -p 8080:8080 \
 | `GET /issue-statuses` | `GET /rest/api/3/search/jql` over `JIRA_JQL`, every page |
 | `POST /issues/{key}/close` | read the issue, then a workflow transition if it is not already terminal |
 
-`status` on the wire is Jira's raw status name. Warren normalizes to its
-own three-state vocabulary at its bridge, so this server never guesses.
+`status` on the wire is warren's own `open | closed | other`, never the
+raw Jira status name. The fold goes by the status *category*
+(`statusCategory.key`), which every Jira workflow assigns and which is
+what Jira itself means by "done", so it holds for any workflow and any
+status name:
+
+| `statusCategory.key` | `status` | Why |
+|---|---|---|
+| `new` (`To Do`, `Open`, `Backlog`, …) | `open` | the only category warren may claim work from |
+| `indeterminate` (`In Progress`, `In Review`, …) | `other` | someone has it; neither claimable nor finished |
+| `done` (`Done`, `Closed`, `Won't Do`, …) | `closed` | Jira considers it finished |
+| no category reported | `other` | cannot be shown closed, and claiming it would be a guess |
+
+Warren's bridge only recognizes those three words and rejects anything
+else, so a server that sent the raw `Done` would produce issues that
+never read as finished.
 
 `description` arrives as an Atlassian Document Format tree on v3 and is
 flattened to text. A plain string passes through, which is what v2 and

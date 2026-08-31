@@ -74,6 +74,7 @@ describe("probeSandboxGit", () => {
 		const result = await probeSandboxGit({
 			which: whichWith(BAD_GIT),
 			env: {},
+			platform: "linux",
 			spawnSandbox: stubSpawnSandbox(BAD_DIR),
 		});
 		expect(result.ok).toBe(false);
@@ -87,6 +88,7 @@ describe("probeSandboxGit", () => {
 		const result = await probeSandboxGit({
 			which: whichWith(BAD_GIT),
 			env: {},
+			platform: "linux",
 			spawnSandbox: stubSpawnSandbox(BAD_DIR),
 		});
 		expect(() => assertSandboxGit(result)).toThrow(SandboxGitPreflightError);
@@ -173,6 +175,7 @@ describe("probeSandboxGit", () => {
 		const result = await probeSandboxGit({
 			which: (name) => (name === "git" ? "/usr/bin/git" : null),
 			env: {},
+			platform: "linux",
 			spawnSandbox: async () => {
 				throw new Error("must not spawn when the wrapper is missing");
 			},

@@ -12,7 +12,9 @@
  * second, unsynchronized backoff underneath the first.
  */
 
-import { jiraAuthHeader, type JiraTrackerConfig } from "../config.ts";
+import { type JiraTrackerConfig, jiraAuthHeader } from "../config.ts";
+import type { IssueStatus } from "../protocol.ts";
+import { issueStatus } from "./map.ts";
 import type { JiraIssue, JiraSearchPage, JiraTransitionsResponse } from "./types.ts";
 
 /** A non-2xx or unreachable Jira. `status` is 0 when the call never landed. */
@@ -46,15 +48,15 @@ export class JiraClient {
 	}
 
 	/**
-	 * The raw `key -> status name` map for every issue the configured JQL
-	 * selects, walked page by page. Jira Cloud's enhanced search paginates
+	 * The `key -> status` map, on warren's vocabulary, for every issue the
+	 * configured JQL selects, walked page by page. Jira Cloud's enhanced search paginates
 	 * on an opaque `nextPageToken` rather than an offset, and stops when it
 	 * stops returning one. `maxSearchPages` is the backstop against a query
 	 * that never stops, and it throws rather than truncating: a silently
 	 * short status map would read to warren as issues that vanished.
 	 */
-	async issueStatuses(): Promise<Record<string, string>> {
-		const statuses: Record<string, string> = {};
+	async issueStatuses(): Promise<Record<string, IssueStatus>> {
+		const statuses: Record<string, IssueStatus> = {};
 		let token: string | undefined;
 		for (let page = 0; page < this.config.maxSearchPages; page++) {
 			const query = new URLSearchParams({
@@ -67,7 +69,7 @@ export class JiraClient {
 			const body = requireObject(await this.request("GET", path), `GET ${path}`) as JiraSearchPage;
 			for (const issue of body.issues ?? []) {
 				if (typeof issue.key === "string" && issue.key.length > 0) {
-					statuses[issue.key] = issue.fields?.status?.name ?? "";
+					statuses[issue.key] = issueStatus(issue);
 				}
 			}
 			token = body.isLast === true ? undefined : body.nextPageToken;
