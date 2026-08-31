@@ -3,19 +3,21 @@
  * every field: these values crossed an HTTP boundary.
  *
  * The one rule worth stating twice is the status rule. `status` on the
- * wire is Jira's RAW status name ("In Progress", "Done", whatever the
- * workflow calls it). Warren normalizes to its own three-state vocabulary
- * at its bridge, and a server that pre-normalizes would be answering a
- * question it was not asked.
+ * wire is warren's `open | closed | other`, never Jira's status name.
+ * A workflow names its statuses however it likes ("In Progress", "Done",
+ * "Won't Do"), and warren's bridge rejects every string it does not
+ * know, so the fold has to happen here, where the status category is
+ * known: `new` is open, `done` is closed, and `indeterminate` is neither.
  */
 
+import type { IssueStatus, RemoteIssueResponse } from "../protocol.ts";
 import {
 	JIRA_DONE_CATEGORY,
+	JIRA_NEW_CATEGORY,
 	type JiraIssue,
 	type JiraIssueLink,
 	type JiraTransition,
 } from "./types.ts";
-import type { RemoteIssueResponse } from "../protocol.ts";
 
 /**
  * Flatten an Atlassian Document Format tree to text. v3 returns
@@ -96,9 +98,18 @@ export function isDone(issue: JiraIssue): boolean {
 	return issue.fields?.status?.statusCategory?.key === JIRA_DONE_CATEGORY;
 }
 
-/** The raw status name, or an empty string when the workflow reports none. */
-export function statusName(issue: JiraIssue): string {
-	return issue.fields?.status?.name ?? "";
+/**
+ * The issue's status on warren's vocabulary, by Jira's status category
+ * rather than the status name: `new` is the only category warren may
+ * claim from, `done` is finished, and `indeterminate` is in flight.
+ * An issue whose workflow reports no category is `other` as well: it
+ * cannot be shown closed, and claiming it would be a guess.
+ */
+export function issueStatus(issue: JiraIssue): IssueStatus {
+	const category = issue.fields?.status?.statusCategory?.key;
+	if (category === JIRA_DONE_CATEGORY) return "closed";
+	if (category === JIRA_NEW_CATEGORY) return "open";
+	return "other";
 }
 
 export function toIssueResponse(
@@ -111,7 +122,7 @@ export function toIssueResponse(
 	const blockedBy = blockedByKeys(issue.fields?.issuelinks, inwardDescription);
 	return {
 		id: issue.key ?? fallbackKey,
-		status: statusName(issue),
+		status: issueStatus(issue),
 		...(typeof title === "string" && title.length > 0 ? { title } : {}),
 		...(description !== undefined ? { description } : {}),
 		...(blockedBy.length > 0 ? { blockedBy } : {}),

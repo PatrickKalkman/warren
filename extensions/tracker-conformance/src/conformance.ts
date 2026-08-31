@@ -12,9 +12,12 @@
  *     exactly `warren-tracker/v1`. A mismatch rejects the server
  *     outright — the same boot-time refusal warren's RemoteTracker
  *     performs — and the suite refuses to judge anything else.
- *   - BASE CONTRACT: issue reads, the raw `id → status` map, and an
+ *   - BASE CONTRACT: issue reads, the `id → status` map, and an
  *     IDEMPOTENT close (closing twice is 2xx both times; the read views
- *     agree on the resulting raw status).
+ *     agree afterwards and both say `closed`). Every status is one of
+ *     warren's `open | closed | other`: the server folds its own states,
+ *     because only it knows which of them are terminal, and warren's
+ *     bridge rejects anything else.
  *   - NOT-FOUND TAXONOMY: a missing issue id surfaces as a non-2xx
  *     response whose envelope carries `error.code: "issue_not_found"`,
  *     on both the read and the close path.
@@ -32,6 +35,8 @@
 
 import {
 	type CapabilitiesResponse,
+	ISSUE_STATUSES,
+	isIssueStatus,
 	TRACKER_ENDPOINTS,
 	TRACKER_ISSUE_NOT_FOUND_CODE,
 	TRACKER_PROTOCOL_VERSION,
@@ -174,8 +179,8 @@ async function checkIssueReads(ctx: Ctx): Promise<string | undefined> {
 		return undefined;
 	}
 	for (const [id, status] of entries) {
-		if (typeof status !== "string" || status.length === 0) {
-			fail(ctx, statusesCase, `status for ${id} must be a non-empty raw string`);
+		if (!isIssueStatus(status)) {
+			fail(ctx, statusesCase, `status for ${id} is ${vocabularyHint(status)}`);
 		}
 	}
 	const probeId = (entries[0] as [string, string])[0];
@@ -183,7 +188,9 @@ async function checkIssueReads(ctx: Ctx): Promise<string | undefined> {
 	ctx.casesRun++;
 	const issueCase = "issues/get";
 	const issueResponse = await request(ctx, "GET", TRACKER_ENDPOINTS.issue(probeId));
-	if (!check(ctx, issueCase, issueResponse.ok, `GET /issues/${probeId} → ${issueResponse.status}`)) {
+	if (
+		!check(ctx, issueCase, issueResponse.ok, `GET /issues/${probeId} → ${issueResponse.status}`)
+	) {
 		return undefined;
 	}
 	const issue = await readJson(ctx, issueCase, issueResponse);
@@ -191,12 +198,17 @@ async function checkIssueReads(ctx: Ctx): Promise<string | undefined> {
 		fail(ctx, issueCase, "issue payload is not an object");
 		return undefined;
 	}
-	check(ctx, issueCase, issue.id === probeId, `payload id ${String(issue.id)} ≠ path id ${probeId}`);
 	check(
 		ctx,
 		issueCase,
-		typeof issue.status === "string" && issue.status.length > 0,
-		"issue status must be a non-empty raw string",
+		issue.id === probeId,
+		`payload id ${String(issue.id)} ≠ path id ${probeId}`,
+	);
+	check(
+		ctx,
+		issueCase,
+		isIssueStatus(issue.status),
+		`issue status is ${vocabularyHint(issue.status)}`,
 	);
 	if (issue.blockedBy !== undefined) {
 		check(
@@ -241,12 +253,7 @@ async function checkNotFoundTaxonomy(ctx: Ctx): Promise<void> {
 			body.error.code === TRACKER_ISSUE_NOT_FOUND_CODE,
 			`error.code is "${String(body.error.code)}", want "${TRACKER_ISSUE_NOT_FOUND_CODE}"`,
 		);
-		check(
-			ctx,
-			caseName,
-			typeof body.error.message === "string",
-			"error.message must be a string",
-		);
+		check(ctx, caseName, typeof body.error.message === "string", "error.message must be a string");
 	}
 }
 
@@ -279,8 +286,27 @@ async function checkCloseSemantics(ctx: Ctx, probeId: string): Promise<void> {
 		ctx,
 		consistencyCase,
 		issueBody.status === statusesBody.statuses[probeId],
-		`GET /issues/${probeId} reports status "${String(issueBody.status)}" but /issue-statuses reports "${String(statusesBody.statuses[probeId])}" — the two views must agree on the raw status`,
+		`GET /issues/${probeId} reports status "${String(issueBody.status)}" but /issue-statuses reports "${String(statusesBody.statuses[probeId])}" — the two views must agree on the status`,
 	);
+
+	// The semantic core: a closed issue must READ as closed. A server that
+	// reports its raw terminal state ("Done", "Closed") passes every shape
+	// check above and still leaves warren with an issue that never
+	// finishes, because the bridge cannot know that "Done" is terminal.
+	ctx.casesRun++;
+	const closedCase = "issues/close-reads-closed";
+	check(
+		ctx,
+		closedCase,
+		issueBody.status === "closed",
+		`after close, GET /issues/${probeId} reports status "${String(issueBody.status)}", want "closed" — the server must fold its terminal states onto warren's vocabulary`,
+	);
+}
+
+/** Names what a bad status value is, so the failure reads as the fix. */
+function vocabularyHint(status: unknown): string {
+	const shown = typeof status === "string" ? `"${status}"` : typeof status;
+	return `${shown}, want one of ${ISSUE_STATUSES.join(", ")} (the server folds its own states onto warren's vocabulary)`;
 }
 
 /** Plans surface (only when declared). */
@@ -405,8 +431,12 @@ async function checkScheduledIssues(ctx: Ctx): Promise<void> {
 		return;
 	}
 	for (const raw of body.issues) {
-		if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.status !== "string") {
-			fail(ctx, caseName, "scheduled issue must carry string id + status");
+		if (!isRecord(raw) || typeof raw.id !== "string" || !isIssueStatus(raw.status)) {
+			fail(
+				ctx,
+				caseName,
+				`scheduled issue must carry a string id and a status that is one of ${ISSUE_STATUSES.join(", ")}`,
+			);
 			return;
 		}
 		const when = typeof raw.scheduledFor === "string" ? Date.parse(raw.scheduledFor) : Number.NaN;

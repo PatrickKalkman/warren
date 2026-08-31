@@ -14,9 +14,9 @@
  *     IssueNotFoundError on both the read and the close path, never as
  *     a generic TrackerError.
  *   - `issues/status-normalization` — the tracker's RAW statuses fold
- *     onto warren's three-state vocabulary (open/closed/other) exactly
- *     the way the RemoteTracker bridge normalizes a remote server's raw
- *     strings.
+ *     onto warren's three-state vocabulary (open/closed/other) at the
+ *     implementation boundary, the way a remote server folds its own
+ *     states before they reach the RemoteTracker bridge.
  *   - `issues/close-status-consistency` — after a close, the single
  *     issue read and the id → status map agree.
  *
