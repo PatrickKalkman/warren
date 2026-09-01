@@ -49,6 +49,8 @@ describe("loadConfig", () => {
 			"https://svc:S3cretPat@dev.azure.com/acme",
 			"svc:S3cretPat@dev.azure.com/acme",
 			"dev.azure.com/svc:S3cretPat@acme",
+			"https://dev.azure.com/acme?token=S3cretPat",
+			"https://dev.azure.com/acme#S3cretPat",
 		]) {
 			const failure = (() => {
 				try {

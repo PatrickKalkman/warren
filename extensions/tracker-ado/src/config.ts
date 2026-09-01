@@ -113,8 +113,11 @@ function organizationUrl(env: Readonly<Record<string, string | undefined>>): str
 	if (url.protocol !== "https:") {
 		throw new ConfigError(`ADO_ORG_URL must be an https URL, got scheme "${url.protocol}"`);
 	}
+	// The query and fragment are not echoed either: `?token=...` is a
+	// credential spelling just like userinfo.
 	if (url.search !== "" || url.hash !== "") {
-		throw new ConfigError(`ADO_ORG_URL must not carry a query or fragment, got "${raw}"`);
+		const part = url.search !== "" ? "a query" : "a fragment";
+		throw new ConfigError(`ADO_ORG_URL must not carry a query or fragment; found ${part}`);
 	}
 	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
