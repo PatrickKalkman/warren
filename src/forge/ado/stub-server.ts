@@ -31,6 +31,8 @@ interface StubBuild {
 	status: string;
 	result: string | null;
 	definitionName: string;
+	/** ISO timestamp; when set, the listing orders newest first like the service. */
+	queueTime?: string;
 }
 
 /** The GUID the repository-metadata route answers with. */
@@ -152,12 +154,14 @@ function listBuilds(state: AdoStubState, url: URL): Response {
 	const branch = url.searchParams.get("branchName");
 	const value = state.builds
 		.filter((b) => branch === null || b.sourceBranch === branch)
+		.sort((a, b) => Date.parse(b.queueTime ?? "") - Date.parse(a.queueTime ?? "") || 0)
 		.map((b) => ({
 			id: b.id,
 			status: b.status,
 			result: b.result,
 			sourceVersion: b.sourceVersion,
 			...(b.sourceBranch !== undefined ? { sourceBranch: b.sourceBranch } : {}),
+			...(b.queueTime !== undefined ? { queueTime: b.queueTime } : {}),
 			definition: { name: b.definitionName },
 			repository: { name: "widget" },
 			_links: { web: { href: `https://dev.azure.com/stub/_build/results?buildId=${b.id}` } },

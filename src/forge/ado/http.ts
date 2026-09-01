@@ -122,6 +122,22 @@ export function classifyAdoHttpError(
 	return { ...base, kind: "http_error" };
 }
 
+/** Statuses whose `Response` must carry no body. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
+/**
+ * Drain `res` and hand back an equivalent response whose body is already
+ * in memory, so no later read can block.
+ */
+async function bufferResponse(res: Response): Promise<Response> {
+	const text = await res.text();
+	return new Response(NULL_BODY_STATUSES.has(res.status) ? null : text, {
+		status: res.status,
+		statusText: res.statusText,
+		headers: res.headers,
+	});
+}
+
 /**
  * Execute one Azure DevOps REST request. Never throws — a thrown fetch
  * (including the deadline firing) surfaces as a `network` error.
@@ -144,9 +160,13 @@ export async function requestAdo(input: AdoRequestInput): Promise<AdoTransportRe
 			() => controller.abort(new DOMException("request timed out at the deadline", "TimeoutError")),
 			timeoutMs,
 		);
+		// The body is consumed inside the same window: a proxy that sends
+		// the headers and then stalls the body would otherwise hang a
+		// caller's read after the timer was already cleared.
 		let res: Response;
 		try {
-			res = await fetchImpl(input.url, { ...init, signal: controller.signal });
+			const fetched = await fetchImpl(input.url, { ...init, signal: controller.signal });
+			res = await bufferResponse(fetched);
 		} catch (err) {
 			return { ok: false, error: networkError(err, input.context) };
 		} finally {

@@ -34,6 +34,7 @@ interface BuildJson {
 	readonly result?: unknown;
 	readonly sourceVersion?: unknown;
 	readonly sourceBranch?: unknown;
+	readonly queueTime?: unknown;
 	readonly definition?: unknown;
 	readonly repository?: unknown;
 	readonly _links?: unknown;
@@ -93,24 +94,33 @@ export function branchFilter(branch: string): string {
 }
 
 /**
- * Keep only the newest build per pipeline definition. The input is the
- * service's `queueTimeDescending` order, so the first row per definition
- * wins. Without this, a branch's earlier failed build keeps the rollup
+ * Keep only the newest build per pipeline definition, judged by
+ * `queueTime`. The rows may be the concatenation of several
+ * newest-first pages (a branch scan plus its PR merge-ref scan), so
+ * arrival order alone would let an older branch build hide a newer
+ * merge-ref build from the same definition. A row without a readable
+ * `queueTime` only wins when nothing dated competes for its definition.
+ * Without this, a branch's earlier failed build keeps the rollup
  * `failing` after a later push turns CI green.
  */
 export function latestPerDefinition(rows: readonly unknown[]): unknown[] {
-	const seen = new Set<string>();
-	const kept: unknown[] = [];
+	const newest = new Map<string, { raw: unknown; queuedAt: number }>();
 	for (const raw of rows) {
-		const definition = (raw as BuildJson | null)?.definition as
-			| { id?: unknown; name?: unknown }
-			| undefined;
+		const build = raw as BuildJson | null;
+		const definition = build?.definition as { id?: unknown; name?: unknown } | undefined;
 		const key = `${String(definition?.id ?? "")}/${String(definition?.name ?? "")}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
-		kept.push(raw);
+		const queuedAt = queueTimeMs(build?.queueTime);
+		const current = newest.get(key);
+		if (current === undefined || queuedAt > current.queuedAt) newest.set(key, { raw, queuedAt });
 	}
-	return kept;
+	return [...newest.values()].map((entry) => entry.raw);
+}
+
+/** `queueTime` as epoch millis; `-Infinity` when absent or unparsable. */
+function queueTimeMs(value: unknown): number {
+	if (typeof value !== "string") return Number.NEGATIVE_INFINITY;
+	const ms = Date.parse(value);
+	return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 
 /** True when `ref` is a full commit SHA rather than a branch name. */

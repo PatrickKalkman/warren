@@ -131,6 +131,33 @@ describe("requestAdo", () => {
 		}
 	});
 
+	test("keeps the deadline armed while the body is read", async () => {
+		const fetchImpl = ((_url: string, init?: RequestInit) => {
+			const stalled = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode("{"));
+					init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+				},
+			});
+			return Promise.resolve(
+				new Response(stalled, { status: 200, headers: { "content-type": "application/json" } }),
+			);
+		}) as unknown as typeof fetch;
+		const result = await requestAdo({
+			url: URL_UNDER_TEST,
+			token: "t",
+			context: "GET /refs",
+			fetch: fetchImpl,
+			timeoutMs: 20,
+			retry: { maxRetries: 0 },
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error.kind).toBe("network");
+			expect(result.error.message).toMatch(/timed out|TimeoutError|timeout/i);
+		}
+	});
+
 	test("hands every call a signal that fires at the deadline", async () => {
 		const fetchImpl = ((_url: string, init?: RequestInit) =>
 			new Promise<Response>((_resolve, reject) => {
